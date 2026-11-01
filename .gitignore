@@ -1,0 +1,4 @@
+.DS_Store
+.cache/
+gpui-kit.d.ts
+jsconfig.json

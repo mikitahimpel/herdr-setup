@@ -1,0 +1,6 @@
+{
+  "programs": {
+    "claude": { "icon": "mods/sleeve-spaces/icons/app-claude.svg", "tint": false },
+    "shell": { "icon": "mods/sleeve-spaces/icons/app-terminal.svg", "tint": false }
+  }
+}
