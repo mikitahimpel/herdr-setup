@@ -82,7 +82,7 @@ export default class Tabs extends View {
     const shown = space?.tabs ?? [];
     const stop = (_e, cx) => cx.stop_propagation();
     const button = (id, label, action, tip) => div().id(id).size(30).flex_none().flex().items_center().justify_center().rounded_full().text_color(t.foreground).hover(s => s.bg(t.hover)).when(Boolean(tip), el => el.tooltip(tip))
-      .on_mouse_move(e => { this.mouse = e.position; })
+      .on_mouse_move(e => { this.previews.mouse = e.position; })
       .on_mouse_down("left", stop).on_click(action).child(label);
     const item = (c, i) => {
       const program = panes().find(p => p.tab === c.id && p.program?.agent)?.program ?? panes().find(p => p.tab === c.id)?.program;
@@ -94,7 +94,7 @@ export default class Tabs extends View {
       return h_flex().id(`tab-${c.id}`).h(30).pl(13).pr(7).gap(4).rounded_full().items_center().flex_none().text_size(12.8).font_bold()
         .bg(c.active ? t.selected : t.chrome).text_color(c.active ? t.foreground : t.muted)
         .hover(s => s.bg(t.hover))
-        .on_mouse_move(e => { this.mouse = e.position; })
+        .on_mouse_move(e => { this.previews.mouse = e.position; })
         .on_hover((on, cx) => {
           if (on) this.hotTab = c.id;
           else if (this.hotTab === c.id) this.hotTab = null;
@@ -104,7 +104,7 @@ export default class Tabs extends View {
           this.previews.show(c.id, () => {
             const pane = panes().find(p => p.tab === c.id && p.program?.agent) ?? panes().find(p => p.tab === c.id);
             if (!pane?.terminal) return null;
-            return { at: { x: Math.max(12, (this.mouse?.x ?? 40) - 40), y: 52 }, props: { terminal: pane.terminal, title: name, icon: program?.tint ? null : program?.icon } };
+            return { at: { x: Math.max(12, (this.previews.mouse?.x ?? 40) - 40), y: 52 }, props: { terminal: pane.terminal, title: name, icon: program?.tint ? null : program?.icon } };
           }, cx);
         })
         .on_mouse_down("left", (e, cx) => { cx.stop_propagation(); this.previews.cancel(); this.pressed = i; if (e.click_count === 2) run("tab.rename", { id: c.id }); else if (!c.active) run("tab.select", { id: c.id }); })
@@ -143,7 +143,6 @@ export default class Tabs extends View {
     };
     return h_flex().size_full().min_w(0).pl(lightsPadding).gap(3).items_center().bg(t.chrome)
       .on_mouse_up("left", () => { this.pressed = null; })
-      .on_scroll_wheel(e => { if (Math.abs(e.delta.y) >= 1) run(e.delta.y > 0 ? "tab.prev" : "tab.next"); })
       .when(Boolean(sidebar?.hidden), el => el.child(button("sidebar-show", svg("mods/sleeve-chrome/icons/sidebar.svg").size(16), () => run("layout.show", { id: "sidebar" }), hint("Show sidebar", "layout.toggle:sidebar"))))
       .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scroll().children(shown.map(item)))
       .child(button("tab-new", svg("mods/sleeve-chrome/icons/plus.svg").size(16), () => openOverlay({ mod: "sleeve-new", kind: "popup", frame: "none", width: 250, height: 512 }), hint("New tab", "tab.new")))

@@ -1,40 +1,14 @@
-// Go to a tab. Drops from the Terminals layout's space chip (popup, at: "top"). Spaces with
-// something that needs you come first, quiet spaces (no agent running)
-// fold into "earlier". Type to filter, ↑/↓ and Enter to go, ctrl+d to close
+// Go to a tab. Spaces with something that needs you come first, quiet spaces (no agent
+// running) fold into their own group. Type to filter, ↑/↓ and Enter to go, ctrl+d to close
 // a tab, Esc to leave. Last rows: new work (a tab here, a space on this
 // computer or on each connected machine).
 
-import { View, div, svg } from "gpui-kit";
+import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { agents, spaces, terminals, run, hc, theme, props, closeOverlay, openOverlay, shared, setShared } from "herdr";
+import { agents, spaces, panes, terminals, run, hc, theme, props, closeOverlay } from "herdr";
 
 const SELECTED = "#2f74d6";
-
-const MARK = { ansi6: "#22a99a", ansi3: "#e3814f", ansi4: "#5b8def", ansi5: "#8b7cf6", ansi2: "#3fae6a", ansi1: "#d9649a" };
-
-// Space colors, kept by space id in shared "space.colors": a theme
-// color name ("ansi6") or a picked #rrggbb. A space seen without one gets
-// the theme color fewest spaces use, once; every mod does the same in the
-// same order, so they agree, and adding or renaming spaces moves nothing.
-const PROJECT_COLORS = ["ansi6", "ansi3", "ansi4", "ansi5", "ansi2", "ansi1"];
-function spaceColors() {
-  const ids = new Set(spaces().map((p) => p.id));
-  const kept = Object.fromEntries(Object.entries(shared("space.colors") ?? {}).filter(([id]) => ids.has(id)));
-  let changed = Object.keys(kept).length !== Object.keys(shared("space.colors") ?? {}).length;
-  for (const p of spaces()) {
-    if (kept[p.id] || p.name === "~") continue;
-    const uses = (c) => Object.values(kept).filter((v) => v === c).length;
-    kept[p.id] = PROJECT_COLORS.reduce((best, c) => (uses(c) < uses(best) ? c : best));
-    changed = true;
-  }
-  if (changed) setShared("space.colors", kept);
-  return kept;
-}
-function spaceColor(t, p) {
-  if (p.name === "~") return t.dim;
-  const c = spaceColors()[p.id] ?? PROJECT_COLORS[0];
-  return c.startsWith("#") ? c : (MARK[c] ?? t[c]);
-}
+const ROW_H = 34, HEAD_H = 30, QUIET_H = 32, RULE_H = 9, MAX_LIST = 420;
 
 export default class Picker extends View {
   init(_props, cx) {
@@ -90,9 +64,10 @@ export default class Picker extends View {
     };
     busy.forEach(add);
     if (quiet.length) {
-      out.push({ kind: "earlier", count: quiet.length });
+      out.push({ kind: "quiet", count: quiet.length });
       if (this.showEarlier || f) quiet.forEach(add);
     }
+    out.push({ kind: "rule" });
     out.push({ kind: "new" });
     out.push({ kind: "space", machine: null });
     for (const m of this.machines) out.push({ kind: "space", machine: m });
@@ -107,9 +82,23 @@ export default class Picker extends View {
     else if (r.kind === "space") run("space.new", r.machine ? { machine: r.machine } : {});
   }
 
-  glyph(t, st) {
-    if (st === "working") return svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.working).spin(1500);
-    return div().w(12).flex_none().text_color(t[st] ?? t.dim).child(st === "idle" ? "○" : st ? "●" : "·");
+  // A tab's tile, as the tab bar and the sidebar draw it.
+  tile(r, on, t) {
+    const inTab = panes().filter((p) => p.tab === r.ctx.id);
+    const pane = inTab.find((p) => p.program?.agent) ?? inTab[0];
+    const program = pane?.program, tint = on ? "#ffffff" : t.muted;
+    const art = !program?.icon ? svg(pane?.mod === "sleeve-review" ? "mods/workspace-chrome/branch.svg" : "mods/sleeve-chrome/icons/file.svg").size(16).text_color(tint)
+      : program.tint ? svg(program.icon).size(16).text_color(tint) : image(program.icon).size(20);
+    return div().size(20).flex_none().flex().items_center().justify_center().child(art);
+  }
+
+  // What a tab is doing, at its end: the same spinner and dot as the sidebar.
+  state(st, on, t) {
+    if (st === "working") return svg("mods/workspace-chrome/spinner.svg").size(13).flex_none().text_color(on ? "#ffffff" : t.working).spin(1500);
+    if (st !== "blocked" && st !== "done") return null;
+    return h_flex().flex_none().gap(6).items_center().text_size(12).text_color(on ? "#ffffffd9" : t.muted)
+      .child(st === "blocked" ? "Needs you" : "Finished")
+      .child(div().size(7).rounded_full().bg(on ? "#ffffff" : t[st]));
   }
 
   render() {
@@ -123,61 +112,48 @@ export default class Picker extends View {
 
     const row = (r) => {
       if (r.kind === "head") {
-        return h_flex()
-          .px(10)
-          .pt(10)
-          .pb(3)
-          .gap(8)
-          .items_center()
-          .text_size(12)
-          .font_bold()
-          .text_color(t.muted)
-          .child(h_flex().size(18).rounded(6).bg(spaceColor(t, r.w)).items_center().justify_center().text_size(10.5).font_bold().text_color("#ffffff").child([...r.w.name][0]?.toUpperCase() ?? "?"))
-          .child(r.w.name);
+        return h_flex().h(HEAD_H).flex_none().px(12).pt(8).items_center().text_size(11.5).font_bold().text_color(t.muted)
+          .child(div().truncate().child(r.w.name));
       }
-      if (r.kind === "earlier") {
-        return h_flex()
-          .id("pk-earlier")
-          .mt(6)
-          .px(10)
-          .py(6)
-          .border_t(1)
-          .border_color(t.border)
-          .text_size(12)
-          .text_color(t.dim)
+      if (r.kind === "rule") return div().h(RULE_H).flex_none().flex().items_center().px(12).child(div().h(1).w_full().bg(t.border));
+      if (r.kind === "quiet") {
+        return h_flex().id("pk-quiet").h(QUIET_H).flex_none().px(12).pt(8).gap(6).items_center().text_size(11.5).font_bold().text_color(t.muted)
           .cursor_pointer()
           .hover((s) => s.text_color(t.foreground))
           .on_click((_e, cx) => {
             this.showEarlier = !this.showEarlier;
             cx.notify();
           })
-          .child(`earlier: ${r.count} quiet space${r.count > 1 ? "s" : ""} ${this.showEarlier ? "▴" : "▾"}`);
+          .child("Quiet spaces")
+          .child(div().text_color(t.dim).child(String(r.count)))
+          .child(div().flex_1())
+          .when(!this.filter, (el) => el.child(svg(`mods/workspace-chrome/chevron-${this.showEarlier ? "down" : "right"}.svg`).size(11).flex_none().text_color(t.dim)));
       }
       const on = r === sel;
       if (r.kind === "new" || r.kind === "space") {
-        const label = r.kind === "new" ? "new tab" : r.machine ? `new space on ${r.machine}` : "new space";
+        const label = r.kind === "new" ? "New tab" : r.machine ? `New space on ${r.machine}` : "New space";
         return h_flex()
           .id(r.kind === "new" ? "pk-new" : `pk-space-${r.machine ?? "here"}`)
-          .when(r.kind === "new", (el) => el.mt(4))
+          .h(ROW_H)
+          .flex_none()
           .px(12)
-          .h(30)
           .items_center()
           .rounded_full()
-          .gap(8)
+          .gap(10)
           .text_color(on ? "#ffffff" : t.foreground)
           .cursor_pointer()
           .when(on, (el) => el.bg(SELECTED))
           .when(!on, (el) => el.hover((s) => s.bg(t.hover)))
           .on_click(() => this.go(r))
-          .child(div().w(12).child("+"))
+          .child(div().size(20).flex_none().flex().items_center().justify_center().child(svg("mods/sleeve-chrome/icons/plus.svg").size(15).text_color(on ? "#ffffff" : t.muted)))
           .child(label);
       }
-      const who = r.mine.map((a) => a.program?.name ?? "agent").join(" · ");
-      const here = r.w.active && r.ctx.active;
+      const end = this.state(r.ctx.status, on, t);
       return h_flex()
         .id(`pk-${r.ctx.id}`)
+        .h(ROW_H)
+        .flex_none()
         .px(12)
-        .h(30)
         .rounded_full()
         .gap(10)
         .items_center()
@@ -185,11 +161,10 @@ export default class Picker extends View {
         .when(on, (el) => el.bg(SELECTED))
         .when(!on, (el) => el.hover((s) => s.bg(t.hover)))
         .on_click(() => this.go(r))
-        .child(this.glyph(t, r.ctx.status))
-        .child(div().flex_1().truncate().text_color(on ? "#ffffff" : t.foreground).child(r.ctx.name))
-        .when(r.ctx.status === "blocked", (el) => el.child(div().text_size(11).text_color(t.blocked).child("needs you")))
-        .when(r.ctx.status === "done", (el) => el.child(div().text_size(11).text_color(t.done).child("finished")))
-        .child(div().text_size(12).text_color(on ? "#ffffffcc" : t.muted).child(who + (r.team ? `  +${r.team}` : "")));
+        .child(this.tile(r, on, t))
+        .child(div().flex_1().min_w(0).truncate().text_color(on ? "#ffffff" : t.foreground).child(r.ctx.name))
+        .when(r.team > 0, (el) => el.child(div().flex_none().text_size(12).text_color(on ? "#ffffffcc" : t.muted).child(`+${r.team}`)))
+        .when(Boolean(end), (el) => el.child(end));
     };
 
     return v_flex()
@@ -226,7 +201,7 @@ export default class Picker extends View {
           .child(svg("mods/sleeve-chrome/icons/search.svg").size(16).flex_none().text_color(t.foreground))
           .child(Input.new(this.input).flex_1().h_full().text_size(12.8).text_color(t.foreground)),
       )
-      .child(v_flex().id("picker-list").h(Math.min(320, 6 + rows.reduce((h, r) => h + (r.kind === "head" ? 29 : r.kind === "earlier" ? 35 : r.kind === "new" ? 36 : 32), 0))).min_h(0).flex_shrink(1).pb(6).overflow_y_scroll().children(rows.map(row)));
+      .child(v_flex().id("picker-list").h(Math.min(MAX_LIST, 6 + rows.reduce((h, r) => h + (r.kind === "head" ? HEAD_H : r.kind === "quiet" ? QUIET_H : r.kind === "rule" ? RULE_H : ROW_H), 0))).min_h(0).flex_shrink(1).pb(6).overflow_y_scroll().children(rows.map(row)));
 
   }
 }

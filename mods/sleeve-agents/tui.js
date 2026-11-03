@@ -14,8 +14,8 @@ async function herdr(prefix, args) {
 
 async function read(prefix) {
   const [w, a] = await Promise.all([herdr(prefix, ["workspace", "list"]), herdr(prefix, ["agent", "list"])]);
-  const names = new Map(w.result.workspaces.map(x => [x.workspace_id, x.label]));
-  return a.result.agents.map(x => ({ ...x, workspace_label: names.get(x.workspace_id) ?? "" }));
+  const places = new Map(w.result.workspaces.map(x => [x.workspace_id, x]));
+  return a.result.agents.map(x => ({ ...x, workspace_label: places.get(x.workspace_id)?.label ?? "", worktree: places.get(x.workspace_id)?.worktree ?? null }));
 }
 
 export class TuiAgents {
@@ -113,7 +113,7 @@ export class TuiAgents {
         title: a.terminal_title_stripped || "",
         seq: a.state_change_seq ?? 0,
         focused: Boolean(shown?.space.active && shown.tab.active),
-        tui: { key, source: s, terminal: a.terminal_id, pane: a.pane_id, cwd: a.cwd },
+        tui: { key, source: s, terminal: a.terminal_id, pane: a.pane_id, cwd: a.cwd, worktree: a.worktree },
       };
     }));
   }

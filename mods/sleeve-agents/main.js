@@ -165,6 +165,42 @@ export default class Agents extends View {
         .when(s.id === on, (el) => el.child(svg("mods/workspace-chrome/check.svg").size(14).flex_none()))));
   }
 
+  // TUI sessions with no space yet, for the spaces tree: one per workspace, by its most
+  // urgent agent. Opening one there comes back through shared "tui.open".
+  publish(list) {
+    const places = new Map(), tabs = {};
+    for (const a of list) {
+      // A tab attached to a TUI agent runs `herdr`; the tree shows the agent instead.
+      if (a.tui && a.tab && !tabs[a.tab]) tabs[a.tab] = a.program.tint ? null : a.program.icon;
+      if (!a.tui || a.tab) continue;
+      const machine = a.tui.source.machine;
+      if (spaces().some((s) => s.name === a.space_name && (s.machine ?? null) === machine)) continue;
+      const best = places.get(a.space);
+      if (best && (RANK[best.status] ?? 0) >= (RANK[a.status] ?? 0)) continue;
+      const w = a.tui.worktree;
+      places.set(a.space, {
+        id: a.space,
+        address: a.address,
+        name: a.space_name || a.title || a.program.name,
+        machine,
+        status: a.status,
+        icon: a.program.tint ? null : a.program.icon,
+        command: ["herdr", ...a.tui.source.prefix, "agent", "read", a.tui.pane, "--source", "visible"],
+        repo: w ? { name: w.repo_name, key: w.repo_key, linked: w.is_linked_worktree } : null,
+      });
+    }
+    const next = [...places.values()], text = JSON.stringify(next);
+    if (text !== this.published) {
+      this.published = text;
+      setShared("tui.places", next);
+    }
+    const attached = JSON.stringify(tabs);
+    if (attached !== this.attached) {
+      this.attached = attached;
+      setShared("tui.tabs", tabs);
+    }
+  }
+
   // Above the pointer, as this list sits low in the window.
   previewAgent(a, name, cx) {
     this.previews.show(a.address, () => {
@@ -238,6 +274,13 @@ export default class Agents extends View {
     const collapsed = narrow();
     const sort = sortOf();
     let list = [...agents(), ...this.tui.agents()];
+    this.publish(list);
+    const asked = shared("tui.open");
+    if (asked) {
+      setShared("tui.open", null);
+      const a = list.find((x) => x.address === asked);
+      if (a && cx) this.tui.open(a, cx);
+    }
     this.listed = new Map(list.map((a) => [a.address, a.status]));
     const all = terminals();
     const shown = focused()?.agent;

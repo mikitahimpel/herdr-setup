@@ -39,6 +39,7 @@ const base = (path) => path.replace(/\/+$/, "").split("/").pop();
 // Changes made outside Herdr (an editor's save, a commit in another app): looked
 // for this often, in repos the list shows, while the window is in front.
 const FALLBACK = 60000;
+const BRANCH = "#2f74d6";
 
 // What a stored color name looks like on an avatar (the same in every mod
 // that draws space avatars): one strong color per hue, light and dark alike.
@@ -211,6 +212,15 @@ export default class Spaces extends View {
     openOverlay({ mod: "sleeve-menu", kind: "popup", frame: "none", width: 224, height: 260, props: { tab: "space", target: { id: w.id } } });
   }
 
+  // TUI sessions with no space yet, shaped as rows; they sit in the tree by machine and repo.
+  sessions() {
+    return (shared("tui.places") ?? []).map((p) => ({
+      i: -1,
+      w: { ...p, tui: true, tabs: [], active: false },
+      g: p.repo ? { name: p.repo.name, branch: "", ahead: 0, behind: 0, repo: JSON.stringify([p.machine, p.repo.key]), linked: p.repo.linked } : null,
+    }));
+  }
+
   // Spaces in order, each repo's other spaces moved under one parent: the one named
   // after the repo, else its first main checkout. A repo with no main checkout stays flat.
   ordered() {
@@ -218,6 +228,7 @@ export default class Spaces extends View {
     const ready = (w) => this.shown.has(w.id) || where(w, ps) in this.git || Date.now() - (this.born[w.id] ??= Date.now()) > 1500;
     for (const w of sp) if (!this.shown.has(w.id) && ready(w)) this.shown.add(w.id);
     const list = sp.map((w, i) => ({ w, i, g: this.git[where(w, ps)] ?? null })).filter((r) => this.shown.has(r.w.id));
+    list.push(...this.sessions());
     const parents = new Map();
     for (const r of list) {
       if (!r.g || r.g.linked) continue;
@@ -301,21 +312,34 @@ export default class Spaces extends View {
   // The space's shown tab, beside the sidebar at the pointer's height.
   previewSpace(w, g, cx) {
     this.previews.show(w.id, () => {
+      const at = { x: (find(layout(), "sidebar")?.size?.px ?? 268) + 16, y: Math.max(12, (this.previews.mouse?.y ?? 60) - 40) };
+      if (w.tui) return { at, props: { command: w.command, title: w.name, icon: this.tile(w, g) } };
       const tab = w.tabs.find((c) => c.active) ?? w.tabs[0];
       const here = panes().filter((p) => p.tab === tab?.id);
       const pane = here.find((p) => p.program?.agent) ?? here.find((p) => p.focused) ?? here[0];
       if (!pane?.terminal) return null;
-      return { at: { x: (find(layout(), "sidebar")?.size?.px ?? 268) + 16, y: Math.max(12, (this.previews.mouse?.y ?? 60) - 40) },
-        props: { terminal: pane.terminal, title: w.name, icon: this.tile(w, g) } };
+      return { at, props: { terminal: pane.terminal, title: w.name, icon: this.tile(w, g) } };
     }, cx);
   }
 
-  // A space's tile: a worktree's branch, else the agent running there, else a terminal.
+  // A space's tile: the agent running there, else a terminal. A worktree says so with `icon`'s badge.
   tile(w, g) {
-    if (g?.linked) return "mods/sleeve-spaces/icons/app-branch.svg";
+    if (w.tui) return w.icon ?? "mods/sleeve-spaces/icons/app-terminal.svg";
     const tabs = new Set(w.tabs.map((c) => c.id));
     const program = this.ps.find((p) => tabs.has(p.tab) && p.program?.agent)?.program;
-    return program?.icon && !program.tint ? program.icon : "mods/sleeve-spaces/icons/app-terminal.svg";
+    if (program?.icon && !program.tint) return program.icon;
+    const attached = shared("tui.tabs") ?? {};
+    return w.tabs.map((c) => attached[c.id]).find(Boolean) ?? "mods/sleeve-spaces/icons/app-terminal.svg";
+  }
+
+  // The tile, with a branch badge on its corner for a worktree. `under` is the row's background,
+  // which the badge's ring cuts into the tile with.
+  icon(w, g, size, under, t, corner = "right") {
+    return div().relative().size(size).flex_none()
+      .child(image(this.tile(w, g)).size(size))
+      .when(Boolean(g?.linked), (el) => el.child(div().absolute().bottom(-3).when(corner === "right", (b) => b.right(-3)).when(corner !== "right", (b) => b.left(-3))
+        .size(13).flex().items_center().justify_center().rounded_full().border_2().border_color(under).bg(BRANCH)
+        .child(svg("mods/workspace-chrome/branch.svg").size(7).text_color("#ffffff"))));
   }
 
   // Tree lines: one weight, each ending at its tile. The trunk runs from the
@@ -365,6 +389,7 @@ export default class Spaces extends View {
       })
       .on_mouse_down("left", () => {
         this.previews.cancel();
+        if (w.tui) return setShared("tui.open", w.address);
         this.pressed = i;
         this.over = i;
         run("space.select", { id: w.id });
@@ -386,13 +411,13 @@ export default class Spaces extends View {
         if (from !== null && over === i && from !== i) run("space.move", { id: spaces()[from].id, index: i + 1 });
         cx.notify();
       })
-      .on_mouse_down("right", () => this.menu(w))
+      .on_mouse_down("right", () => { if (!w.tui) this.menu(w); })
       .children(this.lines(tree, first, trunk, t))
       .child(
         h_flex()
           .gap(9)
           .items_center()
-          .child(image(this.tile(w, g)).w(20).h(20).flex_none())
+          .child(this.icon(w, g, 20, w.active ? t.selected : t.chrome, t))
           .child(div().flex_shrink(1).min_w(0).max_w(150).truncate().font_bold().text_color(t.foreground).child(w.name))
           .child(div().flex_1().min_w(0).truncate().text_size(11.5).font_semibold().text_right().text_color(t.muted).child(line))
           .when(g?.ahead > 0, (el) => el.child(this.badge(`\u2191${g.ahead}`, t.done)))
@@ -417,10 +442,14 @@ export default class Spaces extends View {
         if (!over) this.previews.leave(w.id, cx);
         else if (!w.active) this.previewSpace(w, g, cx);
       })
-      .on_mouse_down("left", () => { this.previews.cancel(); run("space.select", { id: w.id }); })
-      .on_mouse_down("right", () => this.menu(w))
+      .on_mouse_down("left", () => {
+        this.previews.cancel();
+        if (w.tui) setShared("tui.open", w.address);
+        else run("space.select", { id: w.id });
+      })
+      .on_mouse_down("right", () => { if (!w.tui) this.menu(w); })
       .child(div().relative().size(22).flex_none()
-        .child(image(this.tile(w, g)).size(22))
+        .child(this.icon(w, g, 22, w.active ? t.selected : t.chrome, t, "left"))
         .when(Boolean(live), (el) => el.child(div().absolute().right(-2).bottom(-2).size(9).rounded_full().border_2().border_color(t.chrome).bg(t[w.status]))));
   }
 

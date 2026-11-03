@@ -7,6 +7,7 @@ import { appHome, closeOverlay, exec, home, notify, props, run, spaces, theme } 
 const SELECTED = "#2f74d6";
 const SHOWN = 10, ROW_H = 50, LIST_W = 400, HEIGHT = 620, LABEL_H = 24, WAIT = 120, KEEP = 40;
 const TILE = { Claude: "mods/sleeve-spaces/icons/app-claude.svg", Codex: "icons/codex.svg" };
+const SPINNER = "mods/workspace-chrome/spinner.svg";
 const FOLDER = `f="\${1%:*}"; grep -m1 -o '"cwd":"[^"]*"' "$f" | head -1 | sed 's/"cwd":"//;s/"$//'`;
 
 // A snippet read as a sentence: markdown marks are noise on one line.
@@ -79,6 +80,8 @@ export default class History extends View {
 
   soon(cx) {
     const asked = ++this.asked;
+    this.busy = Boolean(this.query.trim());
+    cx.notify();
     cx.timer.after(WAIT, (cx) => { if (asked === this.asked) this.search(cx); });
   }
 
@@ -86,12 +89,13 @@ export default class History extends View {
     const q = this.query.trim(), asked = this.asked;
     if (!q) {
       if (this.rows !== this.recent) { this.rows = this.recent; this.at = 0; }
-      this.failed = false;
+      this.failed = this.busy = false;
       return cx.notify();
     }
     cx.spawn(async (cx) => {
       const r = await exec("agent-history", ["search", "--", q]).catch(() => null);
       if (asked !== this.asked) return;
+      this.busy = false;
       this.failed = !r || r.code !== 0;
       this.rows = this.failed ? [] : parse(r.stdout);
       this.at = 0;
@@ -183,15 +187,17 @@ export default class History extends View {
   }
 
   // Nothing to list: why, and what to do about it. Spans the whole popup.
-  state(icon, title, detail, t) {
+  state(icon, title, detail, t, turning = false) {
     return v_flex().flex_1().h_full().items_center().justify_center().gap(4).pb(24)
       .child(div().size(52).mb(10).flex().items_center().justify_center().rounded_full().bg(t.raised)
-        .child(svg(icon).size(22).text_color(t.muted)))
+        .child(svg(icon).size(22).text_color(t.muted).when(turning, (el) => el.spin(900))))
       .child(div().text_size(14).text_color(t.foreground).child(title))
       .child(div().max_w(380).text_center().truncate().text_size(12.5).font_medium().text_color(t.muted).child(detail));
   }
 
   empty(q, t) {
+    if (this.busy) return this.state(SPINNER, "Searching…", `Looking through your conversations for "${q}"`, t, true);
+    if (!q && !this.loaded) return this.state(SPINNER, "Loading conversations…", "Reading your latest Claude Code and Codex sessions", t, true);
     if (this.failed) return this.state("mods/sleeve-chrome/icons/search.svg", "Search isn't available", "agent-history didn't run", t);
     if (q && this.searched === q) return this.state("mods/sleeve-chrome/icons/search.svg", `No matches for "${q}"`, "Try fewer or different words", t);
     if (!q && this.loaded) return this.state("mods/sleeve-chrome/icons/history.svg", "No conversations yet", "Claude Code and Codex sessions will appear here", t);
@@ -206,7 +212,8 @@ export default class History extends View {
     const from = this.top;
     if (cx) this.details(this.rows[this.at], cx);
     const q = this.query.trim(), some = this.rows.length > 0;
-    const label = !q ? "Recent" : this.searched !== q ? "Searching…" : `${this.rows.length}${this.rows.length === KEEP ? "+" : ""} conversation${this.rows.length === 1 ? "" : "s"}`;
+    const waiting = this.busy || (!q && !this.loaded);
+    const label = !q ? "Recent" : this.busy ? "Searching…" : `${this.rows.length}${this.rows.length === KEEP ? "+" : ""} conversation${this.rows.length === 1 ? "" : "s"}`;
     const hint = (label, cap) => h_flex().gap(6).items_center().child(label)
       .child(div().h(20).px(6).flex().items_center().rounded(6).border_1().border_color(t.input).text_color(t.foreground).child(cap));
     return v_flex().id("history").track_focus(this.handle).w_full().h(HEIGHT).rounded(26).overflow_hidden().border_1().border_color(t.input).bg(t.popover).shadow_2xl().text_size(13).font_semibold()
@@ -219,14 +226,17 @@ export default class History extends View {
         cx.notify();
       })
       .child(h_flex().m(6).mb(8).h(38).flex_none().px(12).gap(8).items_center().rounded_full().bg(t.selected)
-        .child(svg("mods/sleeve-chrome/icons/search.svg").size(16).flex_none().text_color(t.foreground))
+        .child(waiting
+          ? svg(SPINNER).size(16).flex_none().text_color(t.muted).spin(900)
+          : svg("mods/sleeve-chrome/icons/search.svg").size(16).flex_none().text_color(t.foreground))
         .child(Input.new(this.input).flex_1().h_full().text_size(13).text_color(t.foreground)))
       .child(h_flex().flex_1().min_h(0).items_start()
         .when(!some, (el) => el.child(this.empty(q, t)))
         .when(some, (el) => el
           .child(v_flex().w(LIST_W).flex_none().h_full().px(6).gap(2).overflow_hidden()
             .child(div().h(LABEL_H).flex_none().px(12).text_size(12).text_color(t.muted).child(label))
-            .children(this.rows.slice(from, from + SHOWN).map((r, n) => this.row(r, from + n, t))))
+            .child(v_flex().flex_1().min_h(0).gap(2).when(this.busy, (el) => el.opacity(0.45))
+              .children(this.rows.slice(from, from + SHOWN).map((r, n) => this.row(r, from + n, t)))))
           .child(this.preview(this.rows[this.at], t))))
       .child(h_flex().h(40).flex_none().px(14).gap(14).items_center().justify_end().border_t(1).border_color(t.border).text_size(12).text_color(t.muted)
         .child(hint("Close", "esc")).when(some, (el) => el.child(hint("Resume", "↩"))));
