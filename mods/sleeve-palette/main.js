@@ -16,7 +16,6 @@ import { commands, layouts, keys, run, theme, props, closeOverlay, openOverlay, 
 const SHOWN = 13;
 const ROW_H = 28;
 const HEAD_H = 0;
-const SELECTED = "#2f74d6";
 // Entries that go on to a prompt or another list.
 const MORE = new Set(["mod.open", "tab.rename", "space.rename", "mod.clone"]);
 const GLYPHS = { cmd: "⌘", shift: "⇧", ctrl: "⌃", alt: "⌥", enter: "↩", tab: "⇥", escape: "⎋", left: "←", right: "→", up: "↑", down: "↓", space: "␣" };
@@ -190,7 +189,7 @@ export default class Palette extends View {
   }
 
   title(t, text, hits, on) {
-    if (!hits?.length) return div().text_color(on ? "#ffffff" : t.foreground).child(text);
+    if (!hits?.length) return div().text_color(t.foreground).child(text);
     const parts = [];
     let cur = "";
     let lit = false;
@@ -204,7 +203,7 @@ export default class Palette extends View {
       cur += ch;
     });
     if (cur) parts.push([cur, lit]);
-    return h_flex().children(parts.map(([s, h]) => div().text_color(on ? "#ffffff" : h ? t.accent : t.foreground).child(s.replace(/ /g, "\u00a0"))));
+    return h_flex().children(parts.map(([s, h]) => div().text_color(h ? t.accent : t.foreground).child(s.replace(/ /g, "\u00a0"))));
   }
 
   render() {
@@ -232,8 +231,7 @@ export default class Palette extends View {
       if (sel.row + ROW_H > this.scroll + LIST_H) this.scroll = sel.row + ROW_H - LIST_H;
     }
     this.scroll = Math.max(0, Math.min(this.scroll, this.maxScroll));
-    const key = (k, on) => div().text_size(12).text_color(on ? "#ffffffcc" : t.muted)
-      .child(keyParts(k).map((p) => GLYPHS[p] ?? p.toUpperCase()).join(""));
+    const key = (k) => div().flex_none().text_size(12).text_color(t.dim).child(keyParts(k).map((p) => GLYPHS[p] ?? p.toUpperCase()).join(""));
     const hint = (label, cap) => h_flex().gap(6).items_center().child(label)
       .child(div().h(20).px(6).flex().items_center().rounded(6).border_1().border_color(t.input).text_color(t.foreground).child(cap));
     // In a scrolling list each item is placed at its edges from the model
@@ -258,16 +256,16 @@ export default class Palette extends View {
           .px(12)
           .gap(8)
           .items_center()
-          .rounded_full()
+          .rounded(7)
           .cursor_pointer()
           .text_size(13)
-          .when(on, (el) => el.bg(SELECTED))
-          .when(!on, (el) => el.hover((s) => s.bg(t.hover)))
+          .when(on, (el) => el.bg(t.selected))
+          .when(!on, (el) => el.hover((s) => s.bg(`${t.selected.slice(0, 7)}80`)))
           .on_click(() => this.go(r.e))
           .child(div().flex_1().min_w(0).child(this.title(t, r.e.title, r.hits, on)))
-          .when(Boolean(this.query), (el) => el.child(div().text_size(11.5).text_color(on ? "#ffffffcc" : t.muted).child(r.e.group)))
+          .when(Boolean(this.query), (el) => el.child(div().text_size(11.5).text_color(t.muted).child(r.e.group)))
           .when(Boolean(k), (el) => el.child(key(k, on)))
-          .when(MORE.has(r.e.name), (el) => el.child(svg("mods/workspace-chrome/chevron-right.svg").size(13).flex_none().text_color(on ? "#ffffff" : t.foreground))),
+
       );
     });
     return v_flex()
@@ -275,7 +273,7 @@ export default class Palette extends View {
       .track_focus(this.handle)
       .size_full()
       .min_h(0)
-      .rounded(26)
+      .rounded(12)
       .overflow_hidden()
       .border_1()
       .border_color(t.input)
@@ -296,24 +294,23 @@ export default class Palette extends View {
       })
       .child(
         h_flex()
-          .m(6)
-          .mb(8)
-          .h(38)
+          .mb(5)
+          .h(46)
           .flex_none()
-          .px(12)
-          .gap(8)
+          .px(16)
+          .gap(10)
           .items_center()
-          .rounded_full()
-          .bg(t.selected)
-          .child(svg("mods/sleeve-chrome/icons/search.svg").size(16).flex_none().text_color(t.foreground))
-          .child(Input.new(this.input).flex_1().h_full().text_size(13).text_color(t.foreground)),
+          .border_b(1)
+          .border_color(t.border)
+          .child(svg("mods/sleeve-chrome/icons/search.svg").size(16).flex_none().text_color(t.dim))
+          .child(Input.new(this.input).flex_1().h_full().text_size(13.5).text_color(t.foreground)),
       )
       .child(
         rows.length
           ? div()
               .id("palette-rows")
               .relative()
-              .mx(6)
+              .mx(5)
               .flex_none()
               .when(fixed, (el) => el.h(LIST_H).overflow_hidden())
               .on_scroll_wheel((e, cx) => {
@@ -328,11 +325,6 @@ export default class Palette extends View {
               .children(fixed ? list : [v_flex().children(list)])
           : div().flex_1().px(16).py(14).text_size(13).text_color(t.muted).child(`Nothing matches "${this.query}". Places are in the picker.`),
       )
-      .child(div().flex_1())
-      .child(
-        h_flex().h(40).flex_none().px(14).gap(14).items_center().justify_end().border_t(1).border_color(t.border).text_size(12).text_color(t.muted)
-          .child(hint("Close", "esc"))
-          .child(hint("Run", "↩")),
-      );
+      .child(div().h(5).flex_none());
   }
 }

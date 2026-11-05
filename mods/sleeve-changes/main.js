@@ -208,6 +208,6 @@ export default class Changes extends View {
       .when(Boolean(this.note), (e) => e.child(div().px(10).pb(8).text_size(11).text_color(t.ansi1).child(this.note)))
       .child(h_flex().flex_none().p(8).gap(6)
         .child(div().id("commit-message").flex_1().min_w(0).h(34).px(14).flex().items_center().rounded_full().bg(t.selected).border_1().border_color(this.typing ? t.accent : t.selected).cursor_text().on_mouse_down("left", (_e, cx) => cx.stop_propagation()).child(Input.new(this.input).h_full().text_size(12).text_color(t.foreground)))
-        .child(div().id("commit").h(34).px(16).flex().items_center().rounded_full().bg(enabled ? "#2f74d6" : t.raised).text_color(enabled ? "#ffffff" : t.dim).text_size(12).when(enabled, (e) => e.cursor_pointer()).on_click((_e, cx) => this.commit(cx)).child(this.busy ? "Committing…" : "Commit")));
+        .child(div().id("commit").h(34).px(16).flex().items_center().rounded_full().bg(enabled ? "#1f6feb" : t.raised).text_color(enabled ? "#ffffff" : t.dim).text_size(12).when(enabled, (e) => e.cursor_pointer()).on_click((_e, cx) => this.commit(cx)).child(this.busy ? "Committing…" : "Commit")));
   }
 }

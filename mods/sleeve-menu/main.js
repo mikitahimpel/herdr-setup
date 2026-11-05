@@ -6,6 +6,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { run, props, closeOverlay, openOverlay, theme, keys, terminals, spaces, panes, exec } from "herdr";
+import { askClose } from "./ask.js";
 
 // Where a space is now: its first terminal's live folder, else where it was made.
 function place(s) {
@@ -72,7 +73,6 @@ function items(p, git) {
   }
 }
 
-const SELECTED = "#2f74d6";
 const GLYPHS = { cmd: "⌘", shift: "⇧", ctrl: "⌃", alt: "⌥", enter: "↩", left: "←", right: "→", up: "↑", down: "↓" };
 
 function menuIcon(command) {
@@ -97,7 +97,8 @@ export default class Menu extends View {
     const p = props();
     const space = p?.tab === "space" && spaces().find((s) => s.id === p.target?.id);
     const folder = space && place(space);
-    if (folder)
+    if (p?.git !== undefined) this.git = p.git;
+    else if (folder)
       cx.spawn(async (cx) => {
         this.git = await checkout(folder, space.machine).catch(() => null);
         cx.notify();
@@ -109,6 +110,7 @@ export default class Menu extends View {
     if (!it) return;
     closeOverlay(props()?.overlay);
     if (it[1] === "worktree") openOverlay({ mod: "worktree", kind: "dialog", ...(it[2].action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: it[2] });
+    else if (it[1] === "tab.close" || it[1] === "space.close") askClose(it[1] === "tab.close" ? "tab" : "space", it[2].id);
     else run(it[1], it[2]);
   }
 
@@ -120,16 +122,15 @@ export default class Menu extends View {
       .track_focus(this.handle)
       .w_full()
       .min_h(0)
-      .p(6)
+      .p(5)
       .gap(2)
-      .rounded(18)
+      .rounded(12)
       .overflow_hidden()
       .border_1()
       .border_color(t.input)
       .bg(t.popover)
       .shadow_2xl()
-      .text_size(13)
-      .font_semibold()
+      .text_size(12.8).font_semibold()
       .on_key_down((e, cx) => {
         if (e.key === "down") this.at = (this.at + 1) % list.length;
         else if (e.key === "up") this.at = (this.at + list.length - 1) % list.length;
@@ -144,19 +145,19 @@ export default class Menu extends View {
             .when(i > 0 && (it[1].endsWith(".close") || it[1] === "app.help" || (it[1] === "app.theme" && list[i - 1][1] !== "app.theme")), el => el.child(div().mx(12).my(4).h(1).bg(t.border)))
             .child(h_flex()
             .id(`mi-${i}`)
-            .h(30)
+            .h(31)
             .px(12)
             .gap(9)
-            .rounded_full()
+            .rounded(7)
             .items_center()
             .justify_between()
-            .text_color(i === this.at ? "#ffffff" : t.foreground)
-            .when(i === this.at, (el) => el.bg(SELECTED))
+            .text_color(t.foreground)
+            .when(i === this.at, (el) => el.bg(t.selected))
             .on_hover((on, cx) => { if (on) { this.at = i; cx.notify(); } })
             .on_click((_e, cx) => this.choose(i, cx))
             .child(svg(menuIcon(it[1])).size(14).flex_none())
             .child(div().flex_1().child(it[0]))
-            .child(div().text_size(12).text_color(i === this.at ? "#ffffffcc" : t.muted).child(shortcut(it[1], it[2])))),
+            .child(div().text_size(12).text_color(t.muted).child(shortcut(it[1], it[2])))),
         ),
       );
   }

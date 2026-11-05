@@ -1,1 +1,1 @@
-{ "place": "none", "title": "Commands", "overlay": { "kind": "popup", "at": "top", "offset": 56, "width": 344, "height": 482, "frame": "none" } }
+{"place": "none", "title": "Commands", "overlay": {"kind": "popup", "at": "top", "offset": 56, "width": 560, "height": 422, "frame": "none"}}

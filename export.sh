@@ -3,7 +3,7 @@
 set -eu
 repo=$(cd "$(dirname "$0")" && pwd)
 home=${HERDR_APP_HOME:-$HOME/.config/herdr-app}
-filters="--exclude=.cache --exclude=gpui-kit.d.ts --exclude=jsconfig.json --exclude=.DS_Store"
+filters="--exclude=.cache --exclude=gpui-kit.d.ts --exclude=jsconfig.json --exclude=.DS_Store --exclude=.toast-original.js"
 
 mkdir -p "$repo/mods" "$repo/layouts" "$repo/themes"
 rsync -a --delete $filters "$home"/mods/sleeve-* "$repo/mods/"

@@ -2,7 +2,7 @@
 // beside the app's own. Reading never changes them; opening one attaches a tab with
 // `herdr terminal attach`, so it keeps running there and closing the tab only detaches.
 
-import { exec, knownAgents, notify, playSound, run, spaces } from "herdr";
+import { exec, hc, knownAgents, notify, playSound, panes, run, spaces } from "herdr";
 
 const LOCAL_EVERY = 3000;
 const REMOTE_EVERY = 15000;
@@ -35,6 +35,35 @@ export class TuiAgents {
     });
     this.refreshLocal(cx);
     this.refreshRemote(cx);
+    this.checked = new Set();
+    cx.timer.every(10000, (cx) => this.adopt(cx));
+    this.adopt(cx);
+  }
+
+  // Which tabs show a TUI agent, read from what their terminal runs
+  // (`herdr [--session s] terminal attach <id>`), so a tab attached outside this mod,
+  // or before its saved list was lost, still counts. Each terminal is asked once.
+  adopt(cx) {
+    const fresh = panes().filter((p) => p.terminal && !p.terminal.includes("/") && !this.checked.has(p.terminal));
+    if (!fresh.length) return;
+    cx.spawn(async (cx) => {
+      let found = false;
+      for (const p of fresh) {
+        this.checked.add(p.terminal);
+        try {
+          const r = await hc(["get", p.terminal, "--json"]);
+          const argv = JSON.parse(r.stdout).foreground?.argv ?? [];
+          const at = argv.indexOf("attach");
+          if (argv[0] !== "herdr" || at < 0 || argv[at - 1] !== "terminal") continue;
+          const s = argv.indexOf("--session");
+          const key = `local/${s >= 0 ? argv[s + 1] : "default"}|${argv[at + 1]}`;
+          if (this.tabs[key] !== p.tab) { this.tabs[key] = p.tab; found = true; }
+        } catch {}
+      }
+      if (!found) return;
+      localStorage.setItem("tui-tabs", JSON.stringify(this.tabs));
+      cx.notify();
+    });
   }
 
   // Unreachable means unknown: its agents leave the list rather than show a stale state.

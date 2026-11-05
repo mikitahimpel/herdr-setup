@@ -38,8 +38,8 @@ export default class NewMenu extends View {
   }
   row(id, icon, name, action, hint = "", enabled = true) {
     const t = theme();
-    return h_flex().id(id).h(30).px(10).gap(9).rounded_full().items_center().flex_none()
-      .text_color(enabled ? t.foreground : t.dim).when(enabled, el => el.hover(s => s.bg("#2f74d6").text_color("#ffffff")))
+    return h_flex().id(id).h(31).px(10).gap(9).rounded(7).items_center().flex_none()
+      .text_color(enabled ? t.foreground : t.dim).when(enabled, el => el.hover(s => s.bg(t.selected)))
       .on_click(() => { if (enabled) { closeOverlay(props().overlay); action(); } })
       .child(icon).child(div().flex_1().child(name)).child(div().text_size(12).child(hint));
   }
@@ -48,7 +48,7 @@ export default class NewMenu extends View {
     const space = spaces().find(s => s.active);
     const installed = this.agents.filter(a => a.installed);
     const choices = [...installed, ...this.agents.filter(a => !a.installed).slice(0, 2)];
-    return v_flex().min_h(0).w_full().h(Math.min(491, 180 + Math.max(1, choices.length) * 32)).p(6).gap(2).rounded(18).overflow_hidden().border_1().border_color(t.input).bg(t.popover).shadow_2xl().text_size(13).font_semibold()
+    return v_flex().min_h(0).w_full().h(Math.min(491, 180 + Math.max(1, choices.length) * 32)).p(5).gap(2).rounded(12).overflow_hidden().border_1().border_color(t.input).bg(t.popover).shadow_2xl().text_size(12.8).font_semibold()
       .id("new-menu").track_focus(this.handle)
       .on_key_down((e) => {
         if (e.modifiers.control || e.modifiers.platform || e.modifiers.alt) return;
@@ -58,7 +58,7 @@ export default class NewMenu extends View {
         run("tab.new", { name: agent.name, space: space?.id, argv: agent.run });
       })
       .child(this.row("terminal", image("mods/sleeve-spaces/icons/app-terminal.svg").size(18), "Terminal", () => run("tab.new", { space: space?.id }), shortcut("tab.new")))
-      .child(div().px(10).pt(8).pb(4).text_size(12).font_bold().text_color(t.muted).child("Start an agent"))
+      .child(div().px(10).pt(8).pb(4).text_size(11).font_semibold().text_color(t.dim).child("Start an agent"))
       .child(v_flex().id("new-agents").flex_1().min_h(0).gap(2).overflow_y_scroll()
         .children(choices.map((a, i) => this.row(a.key, a.tint ? svg(a.icon).size(16) : image(a.icon).size(18), a.name,
           () => run("tab.new", { name: a.name, space: space?.id, argv: a.run }), a.installed ? (i < 9 ? String(i + 1) : "") : "not installed", a.installed)))

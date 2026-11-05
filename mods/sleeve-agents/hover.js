@@ -4,8 +4,7 @@
 import { exec, hc, openOverlay, closeOverlay, window as appWindow } from "herdr";
 
 export const WIDTH = 520, HEIGHT = 320;
-const DELAY = 100, WATCH = 400, EDGE = 12;
-const POINTER = ['-l', 'JavaScript', '-e', 'ObjC.import("AppKit"); var p = $.NSEvent.mouseLocation; p.x + "," + p.y'];
+const DELAY = 100, WATCH = 1000, EDGE = 12;
 
 export async function readScreen({ terminal, command }) {
   const r = await (command ? exec(command[0], command.slice(1)) : hc(["read", terminal])).catch(() => null);
@@ -26,13 +25,8 @@ function inside(at) {
 }
 
 export class PreviewHover {
-  get mouse() { return this.position; }
-
-  // Every move over a hovered item lands here, which is what `watch` measures against.
-  set mouse(position) {
-    this.position = position;
-    this.stirred = true;
-  }
+  // The pointer's last spot over a hovered item, where the card opens beside.
+  mouse = null;
 
   // `spec()` gives { at: {x, y}, props }, or null for nothing to show.
   show(id, spec, cx) {
@@ -52,25 +46,10 @@ export class PreviewHover {
     if (!due) cx.timer.after(DELAY, (cx) => { due = true; open(cx); });
   }
 
-  // A pointer that leaves the window, or an item that goes away under it, sends no hover-out.
-  // So while a card is up the real pointer is compared with the moves seen here: it travelled
-  // and nothing arrived, so it isn't on the item any more.
+  // A pointer that leaves the window sends no hover-out, so a card shown while the
+  // window goes to the back closes then. Nothing else is asked of the system.
   watch(cx) {
-    let pointer = null, busy = false;
-    this.stirred = false;
-    this.watcher = cx.timer.every(WATCH, (cx) => {
-      if (!appWindow()?.active) return this.cancel();
-      if (busy || appWindow().platform !== "macos") return;
-      busy = true;
-      cx.spawn(async () => {
-        const now = (await exec("osascript", POINTER).catch(() => null))?.stdout.trim();
-        busy = false;
-        if (!now) return;
-        if (pointer !== null && now !== pointer && !this.stirred) return this.cancel();
-        pointer = now;
-        this.stirred = false;
-      });
-    });
+    this.watcher = cx.timer.every(WATCH, () => { if (!appWindow()?.active) this.cancel(); });
   }
 
   leave(id, cx) {

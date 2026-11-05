@@ -4,7 +4,6 @@ import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextView } from "gpui-base";
 import { appHome, closeOverlay, exec, home, notify, props, run, spaces, theme } from "herdr";
 
-const SELECTED = "#2f74d6";
 const SHOWN = 10, ROW_H = 50, LIST_W = 400, HEIGHT = 620, LABEL_H = 24, WAIT = 120, KEEP = 40;
 const TILE = { Claude: "mods/sleeve-spaces/icons/app-claude.svg", Codex: "icons/codex.svg" };
 const SPINNER = "mods/workspace-chrome/spinner.svg";
@@ -139,21 +138,21 @@ export default class History extends View {
     const [repo, branch] = r.where.split(" / ");
     const name = repo === "-" ? "No project" : repo.split("/").pop();
     return h_flex().min_w(0).gap(6).items_center()
-      .child(div().flex_none().text_color(on ? "#ffffff" : t.foreground).child(name))
-      .when(Boolean(branch) && branch !== "-", (el) => el.child(div().min_w(0).truncate().text_size(12).text_color(on ? "#ffffffcc" : t.muted).child(branch)));
+      .child(div().flex_none().text_color(t.foreground).child(name))
+      .when(Boolean(branch) && branch !== "-", (el) => el.child(div().min_w(0).truncate().text_size(12).text_color(t.muted).child(branch)));
   }
 
   row(r, i, t) {
     const on = i === this.at;
-    return h_flex().id(`hs-${r.id}`).h(ROW_H - 2).flex_none().px(12).gap(10).items_center().rounded(18).cursor_pointer()
-      .when(on, (el) => el.bg(SELECTED))
-      .when(!on, (el) => el.hover((s) => s.bg(t.hover)))
+    return h_flex().id(`hs-${r.id}`).h(ROW_H - 2).flex_none().px(12).gap(10).items_center().rounded(7).cursor_pointer()
+      .when(on, (el) => el.bg(t.selected))
+      .when(!on, (el) => el.hover((s) => s.bg(`${t.selected.slice(0, 7)}80`)))
       .on_hover((over, cx) => { if (over && this.at !== i) { this.at = i; cx.notify(); } })
       .on_click((_e, cx) => this.resume(r, cx))
       .child(image(TILE[r.agent] ?? TILE.Claude).size(22).flex_none())
       .child(v_flex().flex_1().min_w(0).child(this.title(r, on, t))
-        .child(div().truncate().text_size(12.5).font_medium().text_color(on ? "#ffffff" : t.foreground).child(r.text)))
-      .child(div().flex_none().text_size(12).text_color(on ? "#ffffffd9" : t.muted).child(ago(r.time)));
+        .child(div().truncate().text_size(12.5).font_medium().text_color(t.foreground).child(r.text)))
+      .child(div().flex_none().text_size(12).text_color(t.muted).child(ago(r.time)));
   }
 
   message(turn, i, id, t) {
@@ -164,9 +163,9 @@ export default class History extends View {
       .child(h_flex().gap(6).items_center().text_size(11.5)
         .child(div().text_color(mine ? t.foreground : t.muted).child(mine ? "You" : "Agent"))
         .child(div().font_medium().text_color(t.dim).child(turn.time ? stamp(turn.time) : ""))
-        .when(turn.hit, (el) => el.child(div().px(6).py(1).rounded_full().bg(SELECTED).text_color("#ffffff").child("Match"))))
-      .child(div().px(12).py(8).rounded(14).text_size(12.5).font_medium().text_color(t.foreground)
-        .bg(mine ? t.selected : t.raised).border_1().border_color(turn.hit ? SELECTED : mine ? t.selected : t.raised).child(body));
+        .when(turn.hit, (el) => el.child(div().px(6).py(1).rounded_full().bg(`${t.accent}26`).text_color(t.accent).child("Match"))))
+      .child(div().px(12).py(8).rounded(10).text_size(12.5).font_medium().text_color(t.foreground)
+        .bg(mine ? t.selected : t.raised).border_1().border_color(turn.hit ? t.accent : mine ? t.selected : t.raised).child(body));
   }
 
   preview(r, t) {
@@ -216,7 +215,7 @@ export default class History extends View {
     const label = !q ? "Recent" : this.busy ? "Searching…" : `${this.rows.length}${this.rows.length === KEEP ? "+" : ""} conversation${this.rows.length === 1 ? "" : "s"}`;
     const hint = (label, cap) => h_flex().gap(6).items_center().child(label)
       .child(div().h(20).px(6).flex().items_center().rounded(6).border_1().border_color(t.input).text_color(t.foreground).child(cap));
-    return v_flex().id("history").track_focus(this.handle).w_full().h(HEIGHT).rounded(26).overflow_hidden().border_1().border_color(t.input).bg(t.popover).shadow_2xl().text_size(13).font_semibold()
+    return v_flex().id("history").track_focus(this.handle).w_full().h(HEIGHT).rounded(12).overflow_hidden().border_1().border_color(t.input).bg(t.popover).shadow_2xl().text_size(12.8).font_semibold()
       .on_key_down((e, cx) => {
         if (e.key === "escape") return closeOverlay(props()?.overlay);
         if (e.key === "down") this.at = Math.min(this.at + 1, this.rows.length - 1);
@@ -225,11 +224,11 @@ export default class History extends View {
         cx.stop_propagation();
         cx.notify();
       })
-      .child(h_flex().m(6).mb(8).h(38).flex_none().px(12).gap(8).items_center().rounded_full().bg(t.selected)
+      .child(h_flex().mb(5).h(46).flex_none().px(16).gap(10).items_center().border_b(1).border_color(t.border)
         .child(waiting
           ? svg(SPINNER).size(16).flex_none().text_color(t.muted).spin(900)
-          : svg("mods/sleeve-chrome/icons/search.svg").size(16).flex_none().text_color(t.foreground))
-        .child(Input.new(this.input).flex_1().h_full().text_size(13).text_color(t.foreground)))
+          : svg("mods/sleeve-chrome/icons/search.svg").size(16).flex_none().text_color(t.dim))
+        .child(Input.new(this.input).flex_1().h_full().text_size(13.5).text_color(t.foreground)))
       .child(h_flex().flex_1().min_h(0).items_start()
         .when(!some, (el) => el.child(this.empty(q, t)))
         .when(some, (el) => el
@@ -238,7 +237,6 @@ export default class History extends View {
             .child(v_flex().flex_1().min_h(0).gap(2).when(this.busy, (el) => el.opacity(0.45))
               .children(this.rows.slice(from, from + SHOWN).map((r, n) => this.row(r, from + n, t)))))
           .child(this.preview(this.rows[this.at], t))))
-      .child(h_flex().h(40).flex_none().px(14).gap(14).items_center().justify_end().border_t(1).border_color(t.border).text_size(12).text_color(t.muted)
-        .child(hint("Close", "esc")).when(some, (el) => el.child(hint("Resume", "↩"))));
+      .child(div().h(5).flex_none());
   }
 }

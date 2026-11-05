@@ -80,6 +80,18 @@ export default class Agents extends View {
     this.changed = JSON.parse(localStorage.getItem("changed") ?? "{}");
     this.pins = JSON.parse(localStorage.getItem("pins") ?? "[]");
     cx.timer.every(30000, (cx) => cx.notify());
+    // The sidebar's TUI places and attached tabs, and its clicks on them, work while
+    // this list is hidden too: a hidden block isn't drawn, so render can't be relied on.
+    cx.timer.every(400, (cx) => this.openAsked(cx));
+    cx.timer.every(3000, () => this.publish([...agents(), ...this.tui.agents()]));
+  }
+
+  openAsked(cx) {
+    const asked = shared("tui.open");
+    if (!asked) return;
+    setShared("tui.open", null);
+    const a = this.tui.agents().find((x) => x.address === asked);
+    if (a) this.tui.open(a, cx);
   }
 
   // Stamps agents whose state changed. Done and idle count as one: looking at a
@@ -136,26 +148,25 @@ export default class Agents extends View {
     const on = sortOf().id;
     return v_flex()
       .w_full()
-      .p(6)
+      .p(5)
       .gap(2)
-      .rounded(18)
+      .rounded(12)
       .overflow_hidden()
       .border_1()
       .border_color(t.input)
       .bg(t.popover)
       .shadow_2xl()
-      .text_size(13)
-      .font_semibold()
-      .child(div().px(12).pt(4).pb(4).text_size(12).font_bold().text_color(t.muted).child("Sort agents"))
+      .text_size(12.8).font_semibold()
+      .child(div().px(10).pt(4).pb(4).text_size(11).font_semibold().text_color(t.dim).child("Sort agents"))
       .children(SORTS.map((s) => h_flex()
         .id(`sort-${s.id}`)
-        .h(30)
-        .px(12)
+        .h(31)
+        .px(10)
         .gap(9)
-        .rounded_full()
+        .rounded(7)
         .items_center()
         .text_color(t.foreground)
-        .hover((el) => el.bg("#2f74d6").text_color("#ffffff"))
+        .hover((el) => el.bg(t.selected))
         .on_click(() => {
           setShared("agents.sort", s.id);
           closeOverlay(props().overlay);
@@ -201,14 +212,7 @@ export default class Agents extends View {
     }
   }
 
-  // Above the pointer, as this list sits low in the window.
-  previewAgent(a, name, cx) {
-    this.previews.show(a.address, () => {
-      const source = a.tui ? { command: ["herdr", ...a.tui.source.prefix, "agent", "read", a.tui.pane, "--source", "visible"] } : { terminal: a.address };
-      const y = Math.max(12, (this.previews.mouse?.y ?? 300) + 20 - HEIGHT);
-      return { at: { x: (find(layout(), "sidebar")?.size?.px ?? 268) + 16, y }, props: { ...source, title: name, icon: a.program?.tint ? null : a.program?.icon } };
-    }, cx);
-  }
+  previewAgent() {}
 
   close() {
     this.previews?.hide();
@@ -275,12 +279,9 @@ export default class Agents extends View {
     const sort = sortOf();
     let list = [...agents(), ...this.tui.agents()];
     this.publish(list);
-    const asked = shared("tui.open");
-    if (asked) {
-      setShared("tui.open", null);
-      const a = list.find((x) => x.address === asked);
-      if (a && cx) this.tui.open(a, cx);
-    }
+    // Headless: a floating block that only keeps the TUI agents (their places, attached
+    // tabs' icons and alerts) running for the spaces tree; it draws nothing.
+    if (props()?.headless) return div();
     this.listed = new Map(list.map((a) => [a.address, a.status]));
     const all = terminals();
     const shown = focused()?.agent;
@@ -509,7 +510,7 @@ export default class Agents extends View {
                 .font_bold()
                 .text_color(t.muted)
                 .hover((s) => s.bg(t.hover).text_color(t.foreground))
-                .on_click(() => openOverlay({ mod: "sleeve-agents", kind: "popup", frame: "none", width: 216, height: 118, props: { sortMenu: true } }))
+                .on_click(() => openOverlay({ mod: "sleeve-agents", kind: "popup", frame: "none", width: 240, height: 118, props: { sortMenu: true } }))
                 .tooltip(`Sort agents: ${sort.label}`)
                 .child(sort.short)
                 .child(svg("mods/workspace-chrome/chevron-down.svg").size(11)),

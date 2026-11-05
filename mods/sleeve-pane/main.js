@@ -6,10 +6,10 @@
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { panes, props, run, theme, home } from "herdr";
+import { panes, props, run, theme, home, layout, focused } from "herdr";
 
 function icon(p, size, color) {
-  if (!p?.icon) return null;
+  if (!p?.icon || p.shell || p.key === "shell") return image("mods/sleeve-spaces/icons/app-terminal.svg").w(size).h(size).flex_none();
   return p.tint ? svg(p.icon).size(size).flex_none().text_color(color) : image(p.icon).w(size).h(size).flex_none();
 }
 
@@ -17,6 +17,23 @@ function folder(cwd) {
   if (!cwd) return "";
   const h = home();
   return cwd === h ? "~" : cwd.startsWith(h + "/") ? "~" + cwd.slice(h.length) : cwd;
+}
+
+function find(node, id) {
+  if (node?.id === id) return node;
+  for (const child of node?.children ?? []) {
+    const found = find(child, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+// With the sidebar hidden, the window buttons sit over the first pane's header: it
+// leaves them room and carries the sidebar toggle the hidden bar had.
+function underLights(p) {
+  if (!find(layout(), "sidebar")?.hidden) return false;
+  const shown = panes().filter((x) => x.tab === (focused()?.tab ?? p.tab));
+  return shown[0]?.pane === p.pane;
 }
 
 export default class Pane extends View {
@@ -48,6 +65,7 @@ export default class Pane extends View {
     const pic = icon(p.program, 14, t.dim);
     const st = p.status;
     const pane = p.pane;
+    const lights = underLights(p);
     return h_flex()
       .font_bold()
       .id(`pane-head-${pane}`)
@@ -61,6 +79,14 @@ export default class Pane extends View {
       .text_size(12)
       .on_hover((hovered, cx) => { this.hovered = hovered; cx.notify(); })
       .on_click(() => run("pane.focus", { pane }))
+      .when(lights, (el) => el.pl(73)
+        // The pane's 1px border puts the header 1px right of and below the sidebar's bar.
+        .child(div().id(`ph-sidebar-${pane}`).relative().top(-0.5).size(30).flex_none().flex().items_center().justify_center().rounded(8).text_color(t.muted)
+          .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Show sidebar")
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click((_e, cx) => { cx.stop_propagation(); run("layout.show", { id: "sidebar" }); })
+          .child(svg("mods/sleeve-chrome/icons/sidebar.svg").size(16)))
+        .child(div().w(1).h(14).mx(2).bg(t.border)))
       .when(Boolean(pic), (el) => el.child(pic))
       .child(div().flex_none().truncate().max_w(260).font_medium().text_color(t.foreground).child(name))
       .child(div().flex_1().truncate().text_color(t.dim).child(folder(p.cwd)))

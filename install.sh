@@ -10,7 +10,7 @@ if [ ! -d "$home/mods" ]; then
   exit 1
 fi
 
-for tool in agent-history difft gh glab; do
+for tool in agent-history difft; do
   command -v "$tool" >/dev/null || echo "Missing $tool (see README)."
 done
 

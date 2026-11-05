@@ -5,9 +5,8 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { agents, spaces, panes, terminals, run, hc, theme, props, closeOverlay } from "herdr";
+import { agents, spaces, panes, terminals, run, hc, theme, props, closeOverlay, shared } from "herdr";
 
-const SELECTED = "#2f74d6";
 const ROW_H = 34, HEAD_H = 30, QUIET_H = 32, RULE_H = 9, MAX_LIST = 420;
 
 export default class Picker extends View {
@@ -86,19 +85,21 @@ export default class Picker extends View {
   tile(r, on, t) {
     const inTab = panes().filter((p) => p.tab === r.ctx.id);
     const pane = inTab.find((p) => p.program?.agent) ?? inTab[0];
-    const program = pane?.program, tint = on ? "#ffffff" : t.muted;
-    const art = !program?.icon ? svg(pane?.mod === "sleeve-review" ? "mods/workspace-chrome/branch.svg" : "mods/sleeve-chrome/icons/file.svg").size(16).text_color(tint)
+    // A tab attached to a herdr TUI agent runs `herdr`; sleeve-agents says which agent.
+    const own = !pane?.program?.agent && (shared("tui.tabs") ?? {})[r.ctx.id];
+    const program = own ? { icon: own, tint: false } : pane?.program, tint = t.muted;
+    const art = !program?.icon || program.shell || program.key === "shell" ? image("mods/sleeve-spaces/icons/app-terminal.svg").size(18)
       : program.tint ? svg(program.icon).size(16).text_color(tint) : image(program.icon).size(20);
     return div().size(20).flex_none().flex().items_center().justify_center().child(art);
   }
 
   // What a tab is doing, at its end: the same spinner and dot as the sidebar.
   state(st, on, t) {
-    if (st === "working") return svg("mods/workspace-chrome/spinner.svg").size(13).flex_none().text_color(on ? "#ffffff" : t.working).spin(1500);
+    if (st === "working") return svg("mods/workspace-chrome/spinner.svg").size(13).flex_none().text_color(t.working).spin(1500);
     if (st !== "blocked" && st !== "done") return null;
-    return h_flex().flex_none().gap(6).items_center().text_size(12).text_color(on ? "#ffffffd9" : t.muted)
+    return h_flex().flex_none().gap(6).items_center().text_size(12).text_color(t.muted)
       .child(st === "blocked" ? "Needs you" : "Finished")
-      .child(div().size(7).rounded_full().bg(on ? "#ffffff" : t[st]));
+      .child(div().size(7).rounded_full().bg(t[st]));
   }
 
   render() {
@@ -112,12 +113,12 @@ export default class Picker extends View {
 
     const row = (r) => {
       if (r.kind === "head") {
-        return h_flex().h(HEAD_H).flex_none().px(12).pt(8).items_center().text_size(11.5).font_bold().text_color(t.muted)
+        return h_flex().h(HEAD_H).flex_none().px(12).pt(8).items_center().text_size(11).font_semibold().text_color(t.dim)
           .child(div().truncate().child(r.w.name));
       }
       if (r.kind === "rule") return div().h(RULE_H).flex_none().flex().items_center().px(12).child(div().h(1).w_full().bg(t.border));
       if (r.kind === "quiet") {
-        return h_flex().id("pk-quiet").h(QUIET_H).flex_none().px(12).pt(8).gap(6).items_center().text_size(11.5).font_bold().text_color(t.muted)
+        return h_flex().id("pk-quiet").h(QUIET_H).flex_none().px(12).pt(8).gap(6).items_center().text_size(11).font_semibold().text_color(t.dim)
           .cursor_pointer()
           .hover((s) => s.text_color(t.foreground))
           .on_click((_e, cx) => {
@@ -138,14 +139,14 @@ export default class Picker extends View {
           .flex_none()
           .px(12)
           .items_center()
-          .rounded_full()
+          .rounded(7)
           .gap(10)
-          .text_color(on ? "#ffffff" : t.foreground)
+          .text_color(t.foreground)
           .cursor_pointer()
-          .when(on, (el) => el.bg(SELECTED))
-          .when(!on, (el) => el.hover((s) => s.bg(t.hover)))
+          .when(on, (el) => el.bg(t.selected))
+          .when(!on, (el) => el.hover((s) => s.bg(`${t.selected.slice(0, 7)}80`)))
           .on_click(() => this.go(r))
-          .child(div().size(20).flex_none().flex().items_center().justify_center().child(svg("mods/sleeve-chrome/icons/plus.svg").size(15).text_color(on ? "#ffffff" : t.muted)))
+          .child(div().size(20).flex_none().flex().items_center().justify_center().child(svg("mods/sleeve-chrome/icons/plus.svg").size(15).text_color(t.muted)))
           .child(label);
       }
       const end = this.state(r.ctx.status, on, t);
@@ -154,16 +155,16 @@ export default class Picker extends View {
         .h(ROW_H)
         .flex_none()
         .px(12)
-        .rounded_full()
+        .rounded(7)
         .gap(10)
         .items_center()
         .cursor_pointer()
-        .when(on, (el) => el.bg(SELECTED))
-        .when(!on, (el) => el.hover((s) => s.bg(t.hover)))
+        .when(on, (el) => el.bg(t.selected))
+        .when(!on, (el) => el.hover((s) => s.bg(`${t.selected.slice(0, 7)}80`)))
         .on_click(() => this.go(r))
         .child(this.tile(r, on, t))
-        .child(div().flex_1().min_w(0).truncate().text_color(on ? "#ffffff" : t.foreground).child(r.ctx.name))
-        .when(r.team > 0, (el) => el.child(div().flex_none().text_size(12).text_color(on ? "#ffffffcc" : t.muted).child(`+${r.team}`)))
+        .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(r.ctx.name))
+        .when(r.team > 0, (el) => el.child(div().flex_none().text_size(12).text_color(t.muted).child(`+${r.team}`)))
         .when(Boolean(end), (el) => el.child(end));
     };
 
@@ -172,16 +173,15 @@ export default class Picker extends View {
       .track_focus(this.handle)
       .w_full()
       .min_h(0)
-      .p(6)
+      .p(5)
       .gap(6)
-      .rounded(26)
+      .rounded(12)
       .overflow_hidden()
       .border_1()
       .border_color(t.input)
       .bg(t.popover)
       .shadow_2xl()
-      .text_size(13)
-      .font_semibold()
+      .text_size(12.8).font_semibold()
       .on_key_down((e, cx) => {
         const k = e.key;
         if (k === "escape") return this.close();
@@ -197,9 +197,9 @@ export default class Picker extends View {
         cx.notify();
       })
             .child(
-        h_flex().h(38).flex_none().px(12).gap(8).items_center().rounded_full().bg(t.selected)
-          .child(svg("mods/sleeve-chrome/icons/search.svg").size(16).flex_none().text_color(t.foreground))
-          .child(Input.new(this.input).flex_1().h_full().text_size(12.8).text_color(t.foreground)),
+        h_flex().mx(-5).mt(-5).h(46).flex_none().px(16).gap(10).items_center().border_b(1).border_color(t.border)
+          .child(svg("mods/sleeve-chrome/icons/search.svg").size(16).flex_none().text_color(t.dim))
+          .child(Input.new(this.input).flex_1().h_full().text_size(13.5).text_color(t.foreground)),
       )
       .child(v_flex().id("picker-list").h(Math.min(MAX_LIST, 6 + rows.reduce((h, r) => h + (r.kind === "head" ? HEAD_H : r.kind === "quiet" ? QUIET_H : r.kind === "rule" ? RULE_H : ROW_H), 0))).min_h(0).flex_shrink(1).pb(6).overflow_y_scroll().children(rows.map(row)));
 
