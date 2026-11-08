@@ -1,6 +1,6 @@
 # Herdr setup
 
-My Herdr desktop layout: the `sleeve` layout and theme, its 14 mods, keys and settings.
+My Herdr desktop layout: the `sleeve` layout and theme, its 15 mods, keys and settings.
 
 ## Install on another Mac
 
@@ -25,6 +25,14 @@ versions as `<name>.bak-<time>`, then switches Herdr to the `sleeve` layout.
 
 - On the Mac with the changes: run `./export.sh`, then commit and push.
 - On the other Mac: `git pull`, then `./install.sh`.
+
+## Claude after a reboot
+
+herdr-core keeps panes alive while the window is closed, but a reboot or logout ends
+their programs: each pane comes back as a shell in its last folder. `sleeve-resume`
+remembers which panes ran Claude Code and in which session. When one comes back as a
+shell, a card at the top offers to run `claude --resume <session>` there with the same
+`--model` and permission flags. Panes where Claude simply exited are not offered.
 
 ## What's left out
 

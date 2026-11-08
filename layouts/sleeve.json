@@ -166,6 +166,14 @@
       },
       "edge": "bottom",
       "align": "end"
+    },
+    {
+      "id": "resume",
+      "content": {
+        "mod": "sleeve-resume"
+      },
+      "edge": "top",
+      "align": "center"
     }
   ]
 }
