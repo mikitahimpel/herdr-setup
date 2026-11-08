@@ -12,7 +12,8 @@ import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, exec, hc, home, readTextFile, spaces, terminals, theme, run } from "herdr";
 
-const EVERY_MS = 8000;
+const EVERY_MS = 4000;
+const SLOW_MS = 60000;
 const KEY = "panes";
 // Flags worth keeping on resume; anything else (a prompt, -p) belongs to the first run.
 const WITH_VALUE = new Set(["--model", "--permission-mode", "--add-dir", "--agent", "--settings", "--mcp-config"]);
@@ -69,25 +70,48 @@ export default class SleeveResume extends View {
     } catch {
       this.panes = {};
     }
+    this.saved = JSON.stringify(this.panes);
     this.busy = false;
+    this.sig = null;
+    this.scanned = 0;
     cx.timer.every(EVERY_MS, (cx) => this.refresh(cx));
     this.refresh(cx);
   }
 
   save() {
-    localStorage.setItem(KEY, JSON.stringify(this.panes));
+    const text = JSON.stringify(this.panes);
+    if (text === this.saved) return false;
+    localStorage.setItem(KEY, text);
+    this.saved = text;
+    return true;
+  }
+
+  // What Herdr already holds in memory about Claude panes. While it stays the same,
+  // nothing started, stopped or was lost, so the hc and file reads can wait for the
+  // slow pass (which catches a /clear or /resume switching the session).
+  signature() {
+    const claude = new Set(agents().filter((a) => a.app === "claude-code").map((a) => a.address));
+    return terminals()
+      .filter((t) => !t.address.includes("/") && (claude.has(t.address) || t.agent === "claude-code" || t.address in this.panes))
+      .map((t) => `${t.address}:${claude.has(t.address)}:${t.agent ?? ""}:${t.state ?? ""}`)
+      .sort()
+      .join(" ");
   }
 
   refresh(cx) {
     if (this.busy) return;
+    const sig = this.signature();
+    if (sig === this.sig && Date.now() - this.scanned < SLOW_MS) return;
     this.busy = true;
     cx.spawn(async (cx) => {
       try {
         await this.scan();
+        this.sig = sig;
+        this.scanned = Date.now();
       } finally {
         this.busy = false;
       }
-      cx.notify();
+      if (this.save()) cx.notify();
     });
   }
 
@@ -131,7 +155,6 @@ export default class SleeveResume extends View {
         else delete this.panes[address];
       }
     }
-    this.save();
   }
 
   lost() {
