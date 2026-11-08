@@ -1,4 +1,4 @@
-// Ask before closing a tab or a space, in sleeve-confirm.
+// Ask before closing a tab or a space, in sleeve-confirm; rename one in sleeve-prompt.
 import { spaces, panes, openOverlay } from "herdr";
 
 const plural = (n, one) => `${n} ${one}${n === 1 ? "" : "s"}`;
@@ -28,6 +28,27 @@ export function askClose(kind, id) {
       detail: whole ? `${what} will stop.` : `In ${space.name}, its panes will stop.`,
       verb: whole ? "Close space" : "Close tab",
       command: whole ? { name: "space.close", args: { id: space.id, confirmed: true } } : { name: "tab.close", args: { id: tab.id, confirmed: true } },
+    },
+  });
+}
+
+// Rename a tab or a space in sleeve-prompt. An unnamed one starts empty with its
+// shown name as the placeholder; saving empty goes back to Herdr's name.
+export function askRename(kind, id) {
+  const all = spaces();
+  const space = kind === "space" ? all.find((s) => s.id === id) : all.find((s) => s.tabs.some((c) => c.id === id));
+  if (!space) return;
+  const tab = kind === "tab" ? space.tabs.find((c) => c.id === id) : null;
+  const named = tab ? tab.named : space.named;
+  const shown = tab ? label(tab) : space.name;
+  openOverlay({
+    mod: "sleeve-prompt", kind: "dialog", frame: "none", width: 440, height: 86,
+    props: {
+      title: tab ? "Rename tab" : "Rename space",
+      hint: tab ? "empty: its number" : "empty: folder name",
+      value: named ? shown : "",
+      placeholder: shown,
+      command: { name: tab ? "tab.rename" : "space.rename", args: { id: tab ? tab.id : space.id } },
     },
   });
 }

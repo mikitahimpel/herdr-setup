@@ -6,7 +6,7 @@
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout, keys, nextCommand } from "herdr";
-import { askClose } from "./ask.js";
+import { askClose, askRename } from "./ask.js";
 
 const GLYPHS = { cmd: "⌘", shift: "⇧", ctrl: "⌃", alt: "⌥" };
 // A control's tooltip: what it does, then its key.
@@ -133,6 +133,10 @@ export default class Spaces extends View {
     cx.spawn(async () => {
       for (;;) {
         const command = await nextCommand();
+        // F2 / Shift-F2 (keys.json): rename the shown tab or space in sleeve-prompt.
+        const active = spaces().find(p => p.active);
+        if (command === "rename-tab") { const tab = active?.tabs.find(c => c.active); if (tab) askRename("tab", tab.id); continue; }
+        if (command === "rename-space") { if (active) askRename("space", active.id); continue; }
         const [, kind, n] = /^(tab|space)([1-9])$/.exec(command) ?? [];
         const list = kind === "tab" ? (spaces().find(p => p.active)?.tabs ?? []).filter(c => !c.settled) : spaces();
         if (kind && Number(n) <= list.length) run(`${kind}.select`, { index: Number(n) });
@@ -438,7 +442,7 @@ export default class Spaces extends View {
         cx.notify();
       })
       .on_mouse_down("left", (e) => {
-        if (e.click_count === 2) return run("tab.rename", { id: c.id });
+        if (e.click_count === 2) return askRename("tab", c.id);
         if (!w.active) run("space.select", { id: w.id });
         if (!c.active) run("tab.select", { id: c.id });
       })
@@ -529,7 +533,7 @@ export default class Spaces extends View {
       }))
       .on_mouse_down("left", (e) => {
         if (w.tui) return setShared("tui.open", w.address);
-        if (e.click_count === 2 && single) return run("tab.rename", { id: single.id });
+        if (e.click_count === 2 && single) return askRename("tab", single.id);
         this.pressed = i;
         this.over = i;
         // A space that lists its tabs is a folder: its tabs are where you go.

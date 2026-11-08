@@ -6,7 +6,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { run, props, closeOverlay, openOverlay, theme, keys, terminals, spaces, panes, exec } from "herdr";
-import { askClose } from "./ask.js";
+import { askClose, askRename } from "./ask.js";
 
 // Where a space is now: its first terminal's live folder, else where it was made.
 function place(s) {
@@ -109,7 +109,8 @@ export default class Menu extends View {
     const it = items(props(), this.git)[i];
     if (!it) return;
     closeOverlay(props()?.overlay);
-    if (it[1] === "worktree") openOverlay({ mod: "worktree", kind: "dialog", ...(it[2].action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: it[2] });
+    if (it[1] === "worktree") openOverlay({ mod: "sleeve-worktree", kind: "dialog", frame: "none", ...(it[2].action === "open" ? { width: 560, height: 480 } : it[2].action === "remove" ? { width: 380, height: 176 } : { width: 460, height: 158 }), props: it[2] });
+    else if (it[1] === "tab.rename" || it[1] === "space.rename") askRename(it[1] === "tab.rename" ? "tab" : "space", it[2].id);
     else if (it[1] === "tab.close" || it[1] === "space.close") askClose(it[1] === "tab.close" ? "tab" : "space", it[2].id);
     else run(it[1], it[2]);
   }

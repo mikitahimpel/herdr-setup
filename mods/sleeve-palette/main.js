@@ -7,7 +7,8 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { commands, layouts, keys, run, theme, props, closeOverlay, openOverlay, shared, window as win } from "herdr";
+import { commands, layouts, keys, run, theme, props, closeOverlay, openOverlay, shared, spaces, window as win } from "herdr";
+import { askRename } from "./ask.js";
 
 // The list keeps one height while you move: rows and group titles have fixed
 // heights, and the window shows as many as fit in LIST_H.
@@ -156,11 +157,16 @@ export default class Palette extends View {
     this.recent = [e.id, ...this.recent.filter((r) => r !== e.id)].slice(0, 20);
     localStorage.setItem("recent", JSON.stringify(this.recent));
     this.close();
+    const active = spaces().find((s) => s.active);
     if (e.name === "mod.clone") {
-      openOverlay({ mod: "prompt", kind: "dialog", width: 380, props: {
-        title: "Duplicate mod", hint: "Mod to copy; creates <name>-copy",
+      openOverlay({ mod: "sleeve-prompt", kind: "dialog", frame: "none", width: 440, height: 86, props: {
+        title: "Duplicate mod", hint: "creates <name>-copy", placeholder: "mod to copy", icon: "mods/sleeve-chrome/icons/layers.svg", verb: "Duplicate",
         command: { name: "mod.clone", args: {} },
       } });
+    } else if (e.name === "space.rename" && active) {
+      askRename("space", active.id);
+    } else if (e.name === "tab.rename" && active?.tabs.some((c) => c.active)) {
+      askRename("tab", active.tabs.find((c) => c.active).id);
     } else {
       run(e.name, e.name === "layout.clone" ? { name: shared("layout") ?? "main" } : e.args);
     }

@@ -65,7 +65,7 @@ export default class NewMenu extends View {
         .when(this.agents.length === 0, el => el.child(div().px(9).py(6).text_color(t.dim).child(this.failed ? "Could not load agents" : "Checking installed agents…"))))
       .child(div().h(1).mx(10).my(4).bg(t.border))
       .child(this.row("space", div().w(18).flex().justify_center().child(svg("mods/sleeve-chrome/icons/plus.svg").size(15)), "New space", () => run("space.new"), shortcut("space.new")))
-      .child(this.row("worktree", image("mods/sleeve-spaces/icons/app-branch.svg").size(18), "New worktree…", () => openOverlay({ mod: "worktree", kind: "dialog", width: 460, height: 280, props: { space: space?.id, folder: panes().find(p => p.focused)?.cwd, action: "new" } }), "", Boolean(space)))
-      .child(this.row("worktree-open", image("mods/sleeve-spaces/icons/app-branch.svg").size(18), "Open worktree\u2026", () => openOverlay({ mod: "worktree", kind: "dialog", width: 560, height: 480, props: { space: space?.id, folder: panes().find(p => p.focused)?.cwd, action: "open" } }), "", Boolean(space)));
+      .child(this.row("worktree", image("mods/sleeve-spaces/icons/app-branch.svg").size(18), "New worktree…", () => openOverlay({ mod: "sleeve-worktree", kind: "dialog", frame: "none", width: 460, height: 158, props: { space: space?.id, folder: panes().find(p => p.focused)?.cwd, action: "new" } }), "", Boolean(space)))
+      .child(this.row("worktree-open", image("mods/sleeve-spaces/icons/app-branch.svg").size(18), "Open worktree\u2026", () => openOverlay({ mod: "sleeve-worktree", kind: "dialog", frame: "none", width: 560, height: 480, props: { space: space?.id, folder: panes().find(p => p.focused)?.cwd, action: "open" } }), "", Boolean(space)));
   }
 }
