@@ -284,8 +284,9 @@ export default class Spaces extends View {
     }));
   }
 
-  // Spaces in order, each repo's other spaces moved under one parent: the one named
-  // after the repo, else its first main checkout. A repo with no main checkout stays flat.
+  // Spaces in order, each repo's worktree spaces moved under one parent: the one named
+  // after the repo, else its first main checkout. Spaces on the main checkout itself stay
+  // side by side, and a repo with no main checkout stays flat.
   ordered() {
     const sp = spaces(), ps = panes();
     const ready = (w) => this.shown.has(w.id) || where(w, ps) in this.git || Date.now() - (this.born[w.id] ??= Date.now()) > 1500;
@@ -298,7 +299,7 @@ export default class Spaces extends View {
       const best = parents.get(r.g.repo);
       if (!best || (r.w.name === r.g.name && best.w.name !== r.g.name)) parents.set(r.g.repo, r);
     }
-    const nested = (r) => r.g && parents.has(r.g.repo) && parents.get(r.g.repo) !== r;
+    const nested = (r) => r.g?.linked && parents.has(r.g.repo);
     const out = [];
     for (const r of list) {
       if (nested(r)) continue;
