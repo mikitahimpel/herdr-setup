@@ -1,6 +1,6 @@
 # Herdr setup
 
-My Herdr desktop layout: the `sleeve` layout and theme, its 15 mods, keys and settings.
+My Herdr desktop layout: the `sleeve` layout and theme, its 17 mods, keys and settings.
 
 ## Install on another Mac
 
