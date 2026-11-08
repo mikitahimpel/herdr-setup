@@ -57,7 +57,7 @@ export function tone(t, status) {
 // The list's edges fade into the sidebar instead of cutting rows off: a few stacked
 // strips of the sidebar color, from solid to clear (plain divs, nothing to allocate).
 const fade = (color, height, down) => {
-  const steps = 6, base = color.slice(0, 7);
+  const steps = Math.max(6, Math.round(height / 2)), base = color.slice(0, 7);
   const strips = Array.from({ length: steps }, (_, n) => {
     const a = Math.round(255 * (1 - (n + 0.5) / steps)).toString(16).padStart(2, "0");
     return div().h(height / steps).flex_none().bg(`${base}${a}`);
