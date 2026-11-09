@@ -158,7 +158,7 @@ export default class Menu extends View {
     const it = items(props(), this.git)[i];
     if (!it) return;
     closeOverlay(props()?.overlay);
-    if (it[1] === "ask") openOverlay({ mod: "sleeve-ask", kind: "dialog", frame: "none", width: 560, height: 136, props: it[2] });
+    if (it[1] === "ask") openOverlay({ mod: "sleeve-ask", kind: "dialog", frame: "none", width: 560, height: 140, props: it[2] });
     else if (it[1] === "copy") exec("sh", ["-c", 'printf %s "$0" | pbcopy', it[2].text]).catch(() => {});
     else if (it[1] === "worktree") openOverlay({ mod: "sleeve-worktree", kind: "dialog", frame: "none", ...(it[2].action === "open" ? { width: 560, height: 480 } : it[2].action === "remove" ? { width: 380, height: 176 } : { width: 460, height: 158 }), props: it[2] });
     else if (it[1] === "tab.rename" || it[1] === "space.rename") askRename(it[1] === "tab.rename" ? "tab" : "space", it[2].id);

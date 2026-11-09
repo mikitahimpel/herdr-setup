@@ -1,5 +1,5 @@
 {
   "place": "none",
   "title": "Ask Claude",
-  "overlay": { "kind": "popup", "at": "top", "offset": 56, "width": 560, "height": 136, "frame": "none" }
+  "overlay": { "kind": "popup", "at": "top", "offset": 56, "width": 560, "height": 140, "frame": "none" }
 }

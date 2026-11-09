@@ -152,7 +152,7 @@ export default class SleeveAsk extends View {
         .child(div().flex_1().min_w(0).truncate().font_medium().text_color(this.error ? t.blocked : t.dim)
           .child(this.error || (this.busy ? "Making the worktree…" : c ? `${c.machine ? `${c.machine}:` : ""}${(c.folder ?? "").replace(home(), "~")}` : "")))
         .child(div().flex_none().font_medium().text_color(t.dim).child("↑↓")))
-      .child(h_flex().flex_1().px(16).gap(14).items_center().justify_end().text_size(12)
+      .child(h_flex().h(52).flex_none().px(18).gap(18).items_center().justify_end().text_size(12)
         .child(cap("ask-cancel", "Cancel", "esc", () => this.close()))
         .child(cap("ask-tree", "New worktree", "⌘↩", (_e, cx) => this.go(true, cx)))
         .child(cap("ask-tab", "New tab", "↩", (_e, cx) => this.go(false, cx))));
