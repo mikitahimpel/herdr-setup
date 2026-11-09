@@ -33,6 +33,7 @@
     "f2": "sleeve-spaces.rename-tab",
     "shift-f2": "sleeve-spaces.rename-space",
     "cmd-shift-e": "sleeve-spaces.focus",
+    "cmd-shift-n": "mod.open:sleeve-ask",
     "cmd-/": "app.help",
     "cmd-shift-/": "app.help",
     "cmd-b": "layout.toggle:sidebar",

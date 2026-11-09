@@ -1,6 +1,6 @@
 # Herdr setup
 
-My Herdr desktop layout: the `sleeve` layout and theme, its 18 mods, keys and settings.
+My Herdr desktop layout: the `sleeve` layout and theme, its 19 mods, keys and settings.
 
 ## Install on another Mac
 
@@ -43,6 +43,16 @@ full name, the agent's state, the branch, folder, uncommitted files and last com
 While scrolling, the rows a part of the tree hangs under stay on top.
 `Cmd-Shift-E` moves the keyboard into the list: arrows move and fold, Enter goes there,
 Esc goes back.
+
+## Ask Claude
+
+`Cmd-Shift-N`, "Ask Claude…" at the top of the + menu or in the palette, or "Ask Claude
+here…" on a space's or tab's right-click menu: one line for a question or a problem.
+It starts in the space the text names (else the shown one; ↑/↓ picks another). Enter
+starts Claude in a new tab there; Cmd-Enter in a new worktree of that space's repo.
+
+Right-click menus also have "Copy ID": a name and its hc address, such as
+`perf-tabs (t5j)`, to tell an agent in Herdr which one you mean.
 
 ## Screenshots into a terminal
 

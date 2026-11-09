@@ -478,7 +478,8 @@ export default class Spaces extends View {
   // the row, 8 above its top, moved up as needed to stay inside the window.
   cardAt(id, t) {
     const props = this.stuckDrawing ? null : this.card.at(id);
-    if (!props) return div();
+    // Out of the row's flow either way: a child in it would take a gap at the row's end.
+    if (!props) return div().absolute();
     return div().absolute().top(-8).right(-10).size(0)
       .child(Popup.new(`card-${id}`, div().size(0)).anchor("top_left")
         .content(this.cardView.render(props, t, (cx) => this.card.close(cx))));

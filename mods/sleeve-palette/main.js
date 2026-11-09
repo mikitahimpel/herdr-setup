@@ -25,6 +25,7 @@ const GROUPS = ["Recent", "Tab", "Pane", "Space", "Layout", "Terminal", "Agent",
 
 // The palette's names for commands: [command, args, group, title, keywords].
 const NAMED = [
+  ["mod.open", { name: "sleeve-ask" }, "Tab", "Ask Claude\u2026", "ask question problem claude agent task new"],
   ["tab.new", {}, "Tab", "New tab", "tab agent new task"],
   ["mod.open", { name: "sleeve-picker" }, "Tab", "Go to space or tab…", "switch jump find"],
   ["mod.open", { name: "sleeve-history" }, "Tab", "Search agent history…", "past conversations resume claude codex"],

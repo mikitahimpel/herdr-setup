@@ -7,7 +7,7 @@
 // The card opens with everything in it, so it never grows while shown: the one thing
 // not already known (the last commit) is read while the pointer rests, and kept a while.
 
-import { exec, window as appWindow } from "herdr";
+import { exec, shared, window as appWindow } from "herdr";
 
 const DELAY = 450; // ms resting on a row before the first card
 const GRACE = 90; // ms between two rows, so moving on doesn't close it
@@ -29,7 +29,7 @@ export class HoverCard {
     const commit = this.commit(props);
     let rested = now || Boolean(this.shown), last;
     const open = (cx) => {
-      if (this.id !== id || !rested || last === undefined || !appWindow()?.active) return;
+      if (this.id !== id || !rested || last === undefined || !appWindow()?.active || shared("sleeve.menu")) return;
       this.shown = { id, props: { ...props, commit: last } };
       cx.notify();
     };
@@ -64,6 +64,8 @@ export class HoverCard {
 
   // The card's props when it is beside row `id`.
   at(id) {
+    // A context menu open: none, and none comes back when it closes.
+    if (this.shown && shared("sleeve.menu")) this.shown = null;
     return this.shown?.id === id ? this.shown.props : null;
   }
 
