@@ -2,11 +2,14 @@
 //   { "tab": "active", "pane": { "header": { "content": { "mod": "sleeve-pane" } } } }
 // Shows the program's icon (the app's program table), the agent's name or
 // the terminal's title, the folder, and the agent's status; buttons split, zoom and close
-// this pane. Props from the app: { pane, terminal }. Click: focus the pane.
+// this pane. Props from the app: { pane, terminal }. Click: focus the pane. While a file
+// is dragged (shared "sleeve.dragging", from sleeve-drop) a terminal's header becomes its
+// drop target: a drop here pastes a copy the terminal can read (drop.js).
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { panes, props, run, theme, home, layout, focused } from "herdr";
+import { panes, props, run, theme, home, layout, focused, shared } from "herdr";
+import { dropInto } from "./drop.js";
 
 function icon(p, size, color) {
   if (!p?.icon || p.shell || p.key === "shell") return image("mods/sleeve-spaces/icons/app-terminal.svg").w(size).h(size).flex_none();
@@ -57,6 +60,29 @@ export default class Pane extends View {
       .child(svg(`mods/sleeve-pane/${icon}.svg`).size(14));
   }
 
+  // The header as a drop target: same height and place, tinted with the accent, saying
+  // where the file goes.
+  target(t, p, name, pic, lights) {
+    const tint = t.accent.slice(0, 7);
+    return h_flex()
+      .font_bold()
+      .id(`pane-drop-${p.pane}`)
+      .size_full()
+      .px(10)
+      .when(lights, (el) => el.pl(73))
+      .gap(8)
+      .items_center()
+      .bg(`${tint}1f`)
+      .border_b(1)
+      .border_color(t.accent)
+      .text_size(12)
+      .on_drop((e, cx) => dropInto(p.pane, e.paths, cx))
+      .when(Boolean(pic), (el) => el.child(pic))
+      .child(div().flex_none().text_color(t.accent).child("Drop to attach"))
+      .child(div().flex_1().truncate().font_medium().text_color(t.muted).child(`to ${name}`))
+      .child(svg("mods/sleeve-chrome/icons/images.svg").size(14).flex_none().text_color(t.accent));
+  }
+
   render(cx) {
     const t = theme();
     const p = this.me();
@@ -66,6 +92,7 @@ export default class Pane extends View {
     const st = p.status;
     const pane = p.pane;
     const lights = underLights(p);
+    if (shared("sleeve.dragging") && p.terminal) return this.target(t, p, name, pic, lights);
     return h_flex()
       .font_bold()
       .id(`pane-head-${pane}`)
@@ -79,6 +106,7 @@ export default class Pane extends View {
       .text_size(12)
       .on_hover((hovered, cx) => { this.hovered = hovered; cx.notify(); })
       .on_click(() => run("pane.focus", { pane }))
+      .on_drop((e, cx) => dropInto(pane, e.paths, cx))
       .when(lights, (el) => el.pl(73)
         // The pane's 1px border puts the header 1px right of and below the sidebar's bar.
         .child(div().id(`ph-sidebar-${pane}`).relative().top(-0.5).size(30).flex_none().flex().items_center().justify_center().rounded(8).text_color(t.muted)

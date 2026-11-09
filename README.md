@@ -1,6 +1,6 @@
 # Herdr setup
 
-My Herdr desktop layout: the `sleeve` layout and theme, its 17 mods, keys and settings.
+My Herdr desktop layout: the `sleeve` layout and theme, its 18 mods, keys and settings.
 
 ## Install on another Mac
 
@@ -33,6 +33,22 @@ their programs: each pane comes back as a shell in its last folder. `sleeve-resu
 remembers which panes ran Claude Code and in which session. When one comes back as a
 shell, a card at the top offers to run `claude --resume <session>` there with the same
 `--model` and permission flags. Panes where Claude simply exited are not offered.
+
+## Sidebar
+
+`sleeve-spaces` draws machine → repo → space → tab, worked out from git alone
+(`tree.js`, tested by `node tree.test.mjs`). A space whose tabs work on different
+branches lists them under one row per branch. Resting on a row opens a card with the
+full name, the agent's state, the branch, folder, uncommitted files and last commit.
+While scrolling, the rows a part of the tree hangs under stay on top.
+`Cmd-Shift-E` moves the keyboard into the list: arrows move and fold, Enter goes there,
+Esc goes back.
+
+## Screenshots into a terminal
+
+Dragging a screenshot thumbnail into a terminal pastes nothing, because macOS keeps that
+file in a protected folder. `sleeve-drop` shows a drop target while such a drag is on,
+and `sleeve-pane` copies the file somewhere readable and pastes its path.
 
 ## What's left out
 

@@ -5,6 +5,9 @@ import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { props, closeOverlay, run, theme, agents } from "herdr";
 
+// The color moved `k` of the way toward `b` (both #rrggbb).
+const mix = (a, b, k) => `#${[1, 3, 5].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - k) + parseInt(b.slice(i, i + 2), 16) * k).toString(16).padStart(2, "0")).join("")}`;
+
 const DOT = { error: "blocked", warning: "working", success: "done", info: "accent" };
 
 // What a notification is about, by its words when Herdr posts one for an agent.
@@ -15,9 +18,15 @@ function tone(p) {
   return DOT[p.level] ?? "accent";
 }
 
-// Herdr's agent notifications read "<space> · <task>": find that agent for its icon.
+// Herdr's agent notifications read "<space> / <task>" (older ones "<space> · <task>").
+function parts(body) {
+  const m = /^(.*?) (?:·|\/) (.+)$/.exec(body ?? "");
+  return m ? [m[1], m[2]] : [body ?? "", undefined];
+}
+
+// Find the agent a notification is about, for its icon.
 function agentOf(p) {
-  const [space, task] = (p.body ?? "").split(" · ");
+  const [space, task] = parts(p.body);
   if (!task) return null;
   return agents().find((a) => a.space_name === space && (a.title === task || a.tab_name === task))
     ?? agents().find((a) => a.space_name === space) ?? null;
@@ -28,12 +37,13 @@ export default class Toast extends View {
     const t = theme();
     const p = props() ?? {};
     const color = t[tone(p)];
-    const [where, task] = (p.body ?? "").split(" · ");
+    const [where, task] = parts(p.body);
     const icon = p.icon ?? agentOf(p)?.program?.icon ?? null;
     const tint = !p.icon && agentOf(p)?.program?.tint;
     // The whole card is the button: the agent's mark, where it is with what happened as
     // a tinted pill, and the task under it.
-    const label = task ? p.title ?? "" : "";
+    // Who it is shows in the icon, so the pill says only what happened.
+    const label = task ? ({ blocked: "Needs you", done: "Done" })[tone(p)] ?? p.title ?? "" : "";
     return h_flex()
       .id("toast")
       .size_full()
@@ -54,8 +64,10 @@ export default class Toast extends View {
       .child(v_flex().flex_1().min_w(0).gap(4)
         .child(h_flex().min_w(0).gap(8).items_center()
           .child(div().flex_1().min_w(0).truncate().font_bold().text_size(14).text_color(t.foreground).child(task ? where : p.title ?? ""))
-          .when(Boolean(label), (el) => el.child(h_flex().flex_none().h(20).px(7).gap(5).items_center().rounded(6).bg(`${color.slice(0, 7)}26`)
-            .text_size(11).font_bold().text_color(color)
+          // The color as a soft fill and a hairline, the words lifted toward the text color.
+          .when(Boolean(label), (el) => el.child(h_flex().flex_none().h(22).px(8).gap(6).items_center().rounded_full()
+            .bg(`${color.slice(0, 7)}2e`).border_1().border_color(`${color.slice(0, 7)}59`)
+            .text_size(11).font_bold().text_color(mix(color.slice(0, 7), t.foreground.slice(0, 7), 0.35))
             .child(div().size(6).rounded_full().bg(color))
             .child(label))))
         .child(div().truncate().text_size(13).text_color(t.muted).child(task ?? p.body ?? "")));

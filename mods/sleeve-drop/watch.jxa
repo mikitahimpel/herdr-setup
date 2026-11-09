@@ -1,0 +1,43 @@
+// Tells sleeve-drop when a file is being dragged anywhere on screen. Herdr gives mods the
+// drop itself but no drag-enter event, so this watches the system drag pasteboard, which
+// changes when a drag starts. The end can't be seen from here: during a drag the mouse
+// button reads as released (and with trackpad dragging it never is pressed), so a drag
+// counts as over after HOLD seconds, or sooner when a header takes the drop.
+// Writes "drag" or "idle" to the file given as the first argument, only on changes.
+// Exits when Herdr quits, or when its pid file names another watcher.
+
+ObjC.import("AppKit");
+
+const HOLD = 6;
+
+function run(argv) {
+  const file = argv[0];
+  const pidFile = argv[1];
+  const me = String($.NSProcessInfo.processInfo.processIdentifier);
+  const pb = $.NSPasteboard.pasteboardWithName($.NSPasteboardNameDrag);
+  const write = (s) => $(s).writeToFileAtomicallyEncodingError(file, true, $.NSUTF8StringEncoding, null);
+  const owner = () => ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(pidFile, $.NSUTF8StringEncoding, null)) || "";
+  let seen = pb.changeCount;
+  let until = 0;
+  write("idle");
+  for (let tick = 1; ; tick++) {
+    delay(0.12);
+    const count = pb.changeCount;
+    const now = Date.now() / 1000;
+    if (count !== seen) {
+      seen = count;
+      const types = ObjC.deepUnwrap(pb.types) || [];
+      if (types.includes("public.file-url")) {
+        write("drag");
+        until = now + HOLD;
+      }
+    } else if (until && now > until) {
+      until = 0;
+      write("idle");
+    }
+    if (tick % 40 === 0) {
+      if ($.NSRunningApplication.runningApplicationsWithBundleIdentifier("dev.herdr.app").count === 0) return;
+      if (owner().trim() !== me) return;
+    }
+  }
+}

@@ -1,12 +1,16 @@
-// Workspace spaces: stable colored avatars, worktrees under their checkout,
-// grouped by machine when more than one is known. After a space's name, the repo
-// its first terminal is in now, only where unusual: branch, ahead/behind. Agent state lives in the agents list, not here. Click to
-// switch, right-click for its menu, drag to reorder.
+// Workspace spaces as a tree: machine, repo, space, tab (tree.js decides what goes where,
+// git.js what git says about each space). After a space's name only what's unusual:
+// repo, branch, ahead/behind. Agent state lives in the agents list, not here. Click to
+// switch, the chevron folds, right-click for its menu, drag to reorder.
 
 import { View, div, image, svg } from "gpui-kit";
-import { v_flex, h_flex } from "gpui-base";
-import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout, keys, nextCommand } from "herdr";
+import { v_flex, h_flex, Popup } from "gpui-base";
+import { spaces, machines, panes, run, openOverlay, hc, theme, shared, setShared, layout, keys, nextCommand, home } from "herdr";
 import { askClose, askRename } from "./ask.js";
+import { GitFacts, lead, place } from "./git.js";
+import { Card } from "./card.js";
+import { HoverCard } from "./hover.js";
+import { buildTree, spacesIn } from "./tree.js";
 
 const GLYPHS = { cmd: "⌘", shift: "⇧", ctrl: "⌃", alt: "⌥" };
 // A control's tooltip: what it does, then its key.
@@ -27,18 +31,15 @@ function find(node, id) {
 // The sidebar's rail goes by its width, not a flag: dragging its edge narrows it too.
 const narrow = () => (find(layout(), "sidebar")?.size?.px ?? Infinity) < 160;
 
-// Where a space is now: its first terminal's live folder, else where it was made.
-// `ps`: panes(), read once by the caller (each read copies every pane).
-function place(s, ps) {
-  const tabs = new Set((s.tabs ?? []).map((c) => c.id));
-  return ps.find((p) => tabs.has(p.tab) && p.cwd)?.cwd || s.folder;
-}
-const rowHeight = ({ tree }) => (tree ? 28 : 30);
-const where = (s, ps) => JSON.stringify([s.machine ?? null, place(s, ps)]);
-const base = (path) => path.replace(/\/+$/, "").split("/").pop();
-// Changes made outside Herdr (an editor's save, a commit in another app): looked
-// for this often, in repos the list shows, while the window is in front.
-const FALLBACK = 60000;
+// The least room dim text on a row's right is shown in.
+const MIN_SIDE = 60;
+
+// Every row's height: what lets folding() know a block's height ahead.
+const ROW = 28;
+
+// How far in each level of the tree sits (under(): margin and guide).
+const STEP = 25;
+
 const BRANCH = "#2f74d6";
 
 // What a stored color name looks like on an avatar (the same in every mod
@@ -66,12 +67,6 @@ const fade = (color, height, down) => {
 };
 
 const TERMINAL = "mods/sleeve-spaces/icons/app-terminal.svg";
-
-// What a tab shows as: its agent, else its focused pane, else its first.
-function lead(tab, ps) {
-  const here = ps.filter((p) => p.tab === tab);
-  return here.find((p) => p.program?.agent) ?? here.find((p) => p.focused) ?? here[0] ?? null;
-}
 
 // A program's icon: agents and other programs keep their own mark; a shell (or nothing
 // known) is the sleeve terminal tile, the same size and weight as an agent's.
@@ -106,14 +101,20 @@ function tabProgram(c, ps) {
 
 export default class Spaces extends View {
   init(_props, cx) {
-    this.git = {}; // where() -> { name, branch, ahead, behind, repo, linked }, null: not a repo
-    this.checked = {}; // where() -> when it was last looked at
-    this.unsure = new Set(); // where()s git couldn't answer for (a machine away)
-    this.pending = new Set(); // where()s to look at next
-    this.busy = {}; // pane -> an agent working or a program in front of its shell
-    this.ready = {}; // machine -> its layout was readable at the last look
-    this.at = {}; // space -> its where() at the last look
-    this.watching = new Set(); // local repos' git folders
+    this.git = new GitFacts();
+    this.card = new HoverCard();
+    this.cardView = new Card(home());
+    // The keyboard in the list (pane.go here, or cmd-shift-e): `cursor` is the row it's on,
+    // `nav` the rows it can reach, in order, rebuilt on every render.
+    this.handle = cx.focus_handle();
+    this.keyboard = false;
+    this.cursor = null;
+    this.nav = [];
+    // The list's own scrolling (see render): how far down, and its content and view heights.
+    this.top = 0;
+    this.contentH = 0;
+    this.viewH = 0;
+    this.places = null;
     // Spaces made while this runs wait (at most a moment) for their git, so a
     // worktree appears under its repo instead of jumping there.
     this.shown = new Set(spaces().map((s) => s.id));
@@ -130,9 +131,10 @@ export default class Spaces extends View {
     cx.timer.every(1000, (cx) => this.checkNew(cx));
     // cmd-1..9 and ctrl-1..9: a number with nothing there does nothing, where the app's own
     // tab.select and space.select post an error.
-    cx.spawn(async () => {
+    cx.spawn(async (cx) => {
       for (;;) {
         const command = await nextCommand();
+        if (command === "focus") { this.focus(cx); cx.notify(); continue; }
         // F2 / Shift-F2 (keys.json): rename the shown tab or space in sleeve-prompt.
         const active = spaces().find(p => p.active);
         if (command === "rename-tab") { const tab = active?.tabs.find(c => c.active); if (tab) askRename("tab", tab.id); continue; }
@@ -144,54 +146,38 @@ export default class Spaces extends View {
     });
   }
 
+  // A wheel or trackpad turn: the list moves by it, within its ends.
+  scroll(e, cx) {
+    if (!this.keyboard) this.card.close(cx);
+    const top = Math.max(0, Math.min(this.top - e.delta.y, this.contentH - this.viewH));
+    if (top === this.top) return;
+    this.top = top;
+    cx.notify();
+  }
+
+  // Scrolls row `id` into view, clear of the headers that would stay over it.
+  reveal(id) {
+    const r = this.places?.rows.get(id);
+    if (!r) return;
+    let over = 0;
+    for (let u = r.up; u; u = u.up) over += u.h;
+    if (r.y - over < this.top) this.top = Math.max(0, r.y - over - 6);
+    else if (r.y + ROW > this.top + this.viewH - 24) this.top = r.y + ROW - this.viewH + 24;
+  }
+
+  async close() {
+    this.card.close();
+  }
+
   // Also run on every render (live data changed), without a redraw of its own.
   checkNew(cx, redraw = true) {
     const now = Date.now();
     const sp = spaces();
     for (const s of sp) if (!this.shown.has(s.id)) this.born[s.id] ??= now;
-    const due = this.due(now, sp, panes());
-    if (due.size) this.refreshGit(due, cx);
+    this.git.update(now, sp, panes(), this.folded, cx);
+    // Focus left the list (a click in a terminal): its cursor goes.
+    if (this.keyboard && !this.handle.is_focused()) { this.keyboard = false; this.card.close(); return cx.notify(); }
     if (redraw && sp.some((s) => !this.shown.has(s.id))) cx.notify();
-  }
-
-  // Places whose git could have changed: new ones (a new space, a cd), where a
-  // command or an agent's turn just ended (a checkout, a commit, edits), those on
-  // a machine that is back, and repos in view whose fallback is due.
-  due(now, sp, ps) {
-    // Moved there: what it knew of that place may be old.
-    const at = {};
-    for (const s of sp) at[s.id] = where(s, ps);
-    const keys = new Set(Object.values(at).filter((k) => JSON.parse(k)[1]));
-    const due = new Set([...keys].filter((k) => !(k in this.git)));
-    for (const [id, k] of Object.entries(at)) if (this.at[id] && this.at[id] !== k && keys.has(k)) due.add(k);
-    this.at = at;
-    const spaceOf = {};
-    for (const s of sp) for (const t of s.tabs ?? []) spaceOf[t.id] = s;
-    const busy = {};
-    for (const p of ps) {
-      if (!p.terminal || !spaceOf[p.tab]) continue;
-      busy[p.pane] = p.status === "working" || !(p.program?.shell || p.program?.agent);
-      if (this.busy[p.pane] && !busy[p.pane]) this.sameRepo(at[spaceOf[p.tab].id], keys).forEach((k) => due.add(k));
-    }
-    this.busy = busy;
-    for (const m of machines()) {
-      const ready = m.layout === "ready";
-      if (ready && this.ready[m.name] === false) for (const k of keys) if (JSON.parse(k)[0] === m.name) due.add(k);
-      this.ready[m.name] = ready;
-    }
-    if (window()?.active) {
-      for (const k of keys) {
-        const asks = this.git[k] || this.unsure.has(k);
-        if (asks && !this.folded.has(JSON.parse(k)[0]) && now - (this.checked[k] ?? 0) > FALLBACK) due.add(k);
-      }
-    }
-    return due;
-  }
-
-  // `key` and the other places in its repo (a commit there moves their ahead/behind).
-  sameRepo(key, keys) {
-    const repo = this.git[key]?.repo;
-    return [key, ...(repo ? [...keys].filter((k) => this.git[k]?.repo === repo) : [])];
   }
 
   refreshMachines(cx) {
@@ -201,81 +187,11 @@ export default class Spaces extends View {
     });
   }
 
-  // One look at a time, each place once however often it was asked for meanwhile.
-  refreshGit(keys, cx) {
-    for (const k of keys) this.pending.add(k);
-    if (this.refreshing) return;
-    this.refreshing = true;
-    cx.spawn(async (cx) => {
-      while (this.pending.size) {
-        const keys = [...this.pending];
-        this.pending.clear();
-        for (const key of keys) await this.check(key, cx);
-      }
-      const used = new Set(Object.values(this.git).filter(Boolean).map((g) => JSON.parse(g.repo)).filter(([on]) => !on).map(([, repo]) => repo));
-      for (const repo of this.watching) if (!used.has(repo)) this.watching.delete(repo);
-      this.refreshing = false;
-      cx.notify();
-    });
-  }
-
-  // One place's git: branch, ahead/behind, its repo.
-  async check(key, cx) {
-    const [on, cwd] = JSON.parse(key);
-    this.checked[key] = Date.now();
-    this.unsure.delete(key);
-    try {
-      // No optional locks: a status that touched the index would wake the watch again.
-      // Writes nothing under .git (index lock, fsmonitor cookie): watch() would wake on it.
-      const r = await exec("git", ["--no-optional-locks", "-c", "core.fsmonitor=false", "status", "--porcelain=v2", "--branch"], { cwd, on });
-      if (r.code !== 0) {
-        // Only git's own "no" is remembered as no repo; anything else is asked again.
-        if (!/not a git repository/i.test(r.stderr)) this.unsure.add(key);
-        this.git[key] = null;
-        return;
-      }
-      // The repo's own .git folder names it; a worktree's top differs from it.
-      const top = await exec("git", ["rev-parse", "--show-toplevel"], { cwd, on });
-      const common = await exec("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd, on });
-      const repo = common.stdout.trim();
-      const name = repo.endsWith("/.git") ? base(repo.slice(0, -5)) : base(repo).replace(/\.git$/, "");
-      const info = { name, branch: null, ahead: 0, behind: 0, repo: JSON.stringify([on, repo]), linked: repo !== `${top.stdout.trim()}/.git` };
-      for (const line of r.stdout.split("\n")) {
-        if (line.startsWith("# branch.head ")) info.branch = line.slice(14);
-        else if (line.startsWith("# branch.ab ")) {
-          const [a, b] = line.slice(12).split(" ");
-          info.ahead = Math.abs(parseInt(a, 10)) || 0;
-          info.behind = Math.abs(parseInt(b, 10)) || 0;
-        }
-      }
-      this.git[key] = info;
-      if (!on) this.watch(repo, cx);
-    } catch {
-      // Couldn't ask (the machine is away): keep what it showed, look again later.
-      this.git[key] ??= null;
-      this.unsure.add(key);
-    }
-  }
-
-  watch(repo, cx) {
-    if (this.watching.has(repo)) return;
-    this.watching.add(repo);
-    cx.spawn(async (cx) => {
-      try {
-        while (this.watching.has(repo)) {
-          await watchFolder(repo);
-          const mine = JSON.stringify([null, repo]);
-          if (this.watching.has(repo)) this.refreshGit(Object.keys(this.git).filter((k) => this.git[k]?.repo === mine), cx);
-        }
-      } catch { this.watching.delete(repo); }
-    });
-  }
-
   menu(w) {
     // A popup is as tall as its items; height is only the most.
     // Whether it's a checkout is known here already, so the menu opens with its final items.
-    const key = where(w, panes()), g = this.git[key];
-    const git = key in this.git ? (g ? (g.linked ? "linked" : "main") : null) : undefined;
+    const ps = panes(), g = this.git.of(w, ps);
+    const git = this.git.known(w, ps) ? (g ? (g.linked ? "linked" : "main") : null) : undefined;
     openOverlay({ mod: "sleeve-menu", kind: "popup", frame: "none", width: 240, height: 260, props: { tab: "space", target: { id: w.id }, git } });
   }
 
@@ -288,55 +204,130 @@ export default class Spaces extends View {
     }));
   }
 
-  // Spaces in order, each repo's worktree spaces moved under one parent: the one named
-  // after the repo, else its first main checkout. Spaces on the main checkout itself stay
-  // side by side, and a repo with no main checkout stays flat.
-  ordered() {
-    const sp = spaces(), ps = panes();
-    const ready = (w) => this.shown.has(w.id) || where(w, ps) in this.git || Date.now() - (this.born[w.id] ??= Date.now()) > 1500;
+  // The spaces with their git, in order. Spaces made while this runs wait (at most a
+  // moment) for their git, so a worktree appears in its repo instead of jumping there.
+  rows() {
+    const sp = spaces(), ps = this.ps;
+    const ready = (w) => this.shown.has(w.id) || this.git.known(w, ps) || Date.now() - (this.born[w.id] ??= Date.now()) > 1500;
     for (const w of sp) if (!this.shown.has(w.id) && ready(w)) this.shown.add(w.id);
-    const list = sp.map((w, i) => ({ w, i, g: this.git[where(w, ps)] ?? null })).filter((r) => this.shown.has(r.w.id));
-    list.push(...this.sessions());
-    const parents = new Map();
-    for (const r of list) {
-      if (!r.g || r.g.linked) continue;
-      const best = parents.get(r.g.repo);
-      if (!best || (r.w.name === r.g.name && best.w.name !== r.g.name)) parents.set(r.g.repo, r);
-    }
-    const nested = (r) => r.g?.linked && parents.has(r.g.repo);
-    const out = [];
-    for (const r of list) {
-      if (nested(r)) continue;
-      out.push({ ...r, tree: null });
-      if (parents.get(r.g?.repo) !== r) continue;
-      const kids = list.filter((k) => nested(k) && k.g.repo === r.g.repo);
-      kids.forEach((k, n) => out.push({ ...k, tree: n === kids.length - 1 ? "└─" : "├─", first: n === 0 }));
-    }
-    return out;
+    const tabG = (w) => Object.fromEntries((w.tabs ?? []).map((c) => [c.id, this.git.ofTab(w, c, ps)]).filter(([, g]) => g !== undefined));
+    const list = sp.map((w, i) => ({ w, i, g: this.git.of(w, ps) ?? null, tabG: tabG(w) })).filter((r) => this.shown.has(r.w.id));
+    return [...list, ...this.sessions()];
   }
 
-  // The rows, under a header per machine once one isn't this computer.
+  // The tree, under a header per machine once one isn't this computer.
   grouped(t, collapsed) {
     this.ps = panes();
-    const rows = this.ordered();
-    const draw = (r) => (collapsed ? this.compact(r, t) : this.row(r, t));
+    this.nav = [];
+    const rows = this.rows();
     const remote = [...new Set([...rows.map(r => r.w.machine).filter(Boolean), ...this.machines.map(m => m.name)])].sort();
+    const tree = buildTree(rows, remote);
+    // Machine headers are labels over their spaces, not a level: rows start at the edge.
+    this.indent = 0;
+    const draw = (nodes) => (collapsed ? spacesIn(nodes).map((n) => this.compact(n, t)) : nodes.map((n) => this.node(n, t, this.indent)));
     const loading = m => {
       const layout = machines().find(k => k.name === m)?.layout;
       return layout === "loading" || (!layout && this.machines.some(k => k.name === m && k.state === "connected"))
         || spaces().some(s => (s.machine ?? null) === m && !this.shown.has(s.id));
     };
+    // Where every row is, for the headers that stay on top while scrolling and for
+    // the keyboard: a machine without spaces shows one row (loading, or a new space).
+    this.places = collapsed ? null : this.place(tree, remote, (m) => (loading(m) || !m || this.machines.find((k) => k.name === m)?.state === "connected" ? 1 : 0));
     const loadingRow = m => div().id(`machine-loading-${m ?? "local"}`).h(28).flex_none().px(8).text_size(12).text_color(t.dim).child(collapsed ? "…" : "Loading…");
-    if (!remote.length) return loading(null) && !rows.length ? [loadingRow(null)] : this.forest(rows, collapsed, draw, t);
-    const machineNames = [null, ...remote];
-    return machineNames.flatMap((m) => {
-      const mine = rows.filter((r) => (r.w.machine ?? null) === m);
+    if (!remote.length) return loading(null) && !rows.length ? [loadingRow(null)] : draw(tree[0].nodes);
+    return tree.flatMap(({ machine: m, nodes }, n) => {
       const machine = this.machines.find(k => k.name === m);
       const connected = !m || machine?.state === "connected";
       const folded = this.folded.has(m);
-      const first = m === machineNames[0];
+      const head = this.machineHead(m, t, collapsed).when(n > 0, el => el.mt(14));
+      if (folded) return [head];
+      const empty = h_flex().id(`machine-new-${m ?? "local"}`).h(28).flex_none().px(8).gap(7).items_center().rounded(7)
+        .text_size(12).text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground))
+        .on_click(() => run("space.new", m ? { machine: m } : {}))
+        .child(svg("mods/workspace-chrome/plus.svg").size(12)).when(!collapsed, el => el.child("New space there"));
+      // A machine away takes no new space: its header already says so.
+      const body = nodes.length ? draw(nodes) : loading(m) ? [loadingRow(m)] : connected ? [empty] : [];
+      return collapsed ? [head, ...body] : [head, v_flex().flex_none().gap(2).when(!connected, el => el.opacity(0.55)).children(body)];
+    });
+  }
+
+  // Every row's top in the list's content, and the headers that can stay on top (a
+  // machine's, an open repo's, space's or branch's) with where their block ends. Worked
+  // out, not measured: rows are ROW tall and the gaps are fixed, as drawn by grouped(),
+  // folding(), branch() and branchBlock(). A fold's slide isn't followed: during it the
+  // headers may sit up to its height off.
+  // `alone(m)`: how many rows machine `m` shows without spaces (0 or 1).
+  place(tree, remote, alone) {
+    const rows = new Map(), heads = [];
+    const GAP = 2; // between the list's rows
+    // A node at `y`, `x` in; returns its height.
+    const at = (n, y, x, up) => {
+      if (n.kind === "tab") { rows.set(n.id, { y, up }); return ROW; }
+      const id = n.kind === "repo" ? `repo:${n.id}` : n.id;
+      if (n.kind !== "section") rows.set(id, { y, up });
+      const open = n.kind === "section" || (n.kind === "repo" ? !this.spaceFolds.has(id) : n.children.length > 0 && !this.spaceFolds.has(n.id));
+      if (!open) return ROW;
+      const head = { n, y, x, h: ROW, up, end: 0 };
+      heads.push(head);
+      // Each child: a guide's 1 px over it, after the fold's (or the branch's gap) 1 px.
+      let h = ROW + 1;
+      for (const c of n.children) h += 1 + at(c, y + h + 1, x + STEP, head);
+      head.end = y + h;
+      return h;
+    };
+    const list = (nodes, y, up) => nodes.reduce((h, n, k) => h + (k ? GAP : 0) + at(n, y + h + (k ? GAP : 0), 0, up), 0);
+    let y = 6; // the list's top padding
+    if (!remote.length) return { rows, heads, end: y + list(tree[0].nodes, y, null) };
+    tree.forEach(({ machine: m, nodes }, k) => {
+      if (k) y += 14;
+      const head = { machine: m, y, x: 0, h: 24, up: null, end: 0 };
+      y += 24 + GAP;
+      if (this.folded.has(m)) return;
+      // Before its spaces' headers: stuck() takes a header only after the one it's under.
+      if (nodes.length) heads.push(head);
+      const body = nodes.length ? list(nodes, y, head) : alone(m) * ROW;
+      head.end = y + body;
+      y += body + GAP;
+    });
+    return { rows, heads, end: y };
+  }
+
+  // The headers that stay on top at scroll `top`: each whose row has gone above the ones
+  // over it, until its block ends, then pushed up with it. [{ head, at }], `at` in the
+  // view. At most MAX deep, so a deep tree still leaves room for the list.
+  stuck(top) {
+    if (!this.places || top <= 0) return [];
+    const MAX = 4;
+    const out = [], under = new Map(); // head -> the bottom of its stuck row in the view
+    for (const head of this.places.heads) {
+      const over = head.up ? under.get(head.up) : 0;
+      if (over === undefined || out.length >= MAX) continue;
+      if (head.y - top >= over || head.end - top <= over) continue;
+      const at = Math.min(over, head.end - top - head.h);
+      out.push({ head, at });
+      under.set(head, at + head.h);
+    }
+    return out;
+  }
+
+  // A stuck header: a copy of its row, on the list's color, without its guides.
+  stuckRow({ head, at }, t, collapsed) {
+    const n = head.n;
+    const row = head.machine !== undefined ? this.machineHead(head.machine, t, collapsed)
+      : n.kind === "repo" ? this.repoHead(n, t)
+      : n.kind === "section" ? this.branchHead(n, t)
+      : this.row({ ...n, parent: true, open: true, x: head.x, sectioned: n.children[0]?.kind === "section" }, t);
+    return div().absolute().top(at).left(0).right(0).h(head.h).px(8).bg(t.chrome)
+      .child(div().pl(head.x).child(row));
+  }
+
+  // A machine's header: its name and state, and on hover a new space there and the fold.
+  machineHead(m, t, collapsed) {
+      const machine = this.machines.find(k => k.name === m);
+      const connected = !m || machine?.state === "connected";
+      const folded = this.folded.has(m);
       const hot = this.hotMachine === (m ?? "local");
-      const head = h_flex().id(`machine-${m ?? "local"}`).h(24).flex_none().when(!first, el => el.mt(14)).when(collapsed, el => el.justify_center()).when(!collapsed, el => el.pl(10).pr(4)).gap(7).items_center()
+      const head = h_flex().id(`machine-${m ?? "local"}`).h(24).flex_none().when(collapsed, el => el.justify_center()).when(!collapsed, el => el.pl(10).pr(4)).gap(7).items_center()
         .text_size(12).font_bold().text_color(hot ? t.foreground : t.muted)
         .cursor_pointer()
         .on_hover((on, cx) => { this.hotMachine = on ? m ?? "local" : undefined; cx.notify(); })
@@ -356,51 +347,45 @@ export default class Spaces extends View {
               .on_click((_e, cx) => { cx.stop_propagation(); run("space.new", m ? { machine: m } : {}); }).child(svg("mods/sleeve-chrome/icons/plus.svg").size(15))))
             .child(div().size(22).flex().items_center().justify_center().child(svg(`mods/workspace-chrome/chevron-${folded ? "right" : "down"}.svg`).size(12)))))
           .when(!hot && folded, el => el.child(svg("mods/workspace-chrome/chevron-right.svg").size(12).flex_none())));
-      const empty = h_flex().id(`machine-new-${m ?? "local"}`).h(28).flex_none().px(8).gap(7).items_center().rounded(7)
-        .text_size(12).text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground))
-        .on_click(() => run("space.new", m ? { machine: m } : {}))
-        .child(svg("mods/workspace-chrome/plus.svg").size(12)).when(!collapsed, el => el.child("New space there"));
-      const body = mine.length ? this.forest(mine, collapsed, draw, t) : [loading(m) ? loadingRow(m) : empty];
-      if (folded) return [head];
-      return collapsed ? [head, ...body] : [head, v_flex().flex_none().ml(16).when(!connected, el => el.opacity(0.55)).children(body.map((b, n) => this.branch(b, n === body.length - 1, t)))];
-    });
+    return head;
   }
 
-  tabsOf(w) {
-    if (w.tui) return [];
-    return (w.tabs ?? []).filter((c) => !c.settled || c.active);
+  // `x`: how far in from the list's edge the node's rows start.
+  node(n, t, x) {
+    return n.kind === "repo" ? this.repoBlock(n, t, x) : this.spaceBlock(n, t, x);
   }
 
-  // Each space with what hangs under it: its tabs when it has several, then its repo's
-  // worktrees. Children sit behind one thin guide line, one step in.
-  forest(rows, collapsed, draw, t) {
-    if (collapsed) return rows.map(draw);
-    const out = [];
-    for (let n = 0; n < rows.length; n++) {
-      const r = rows[n];
-      if (r.tree) continue;
-      const kids = [];
-      while (rows[n + 1]?.tree) kids.push(rows[++n]);
-      out.push(this.block(r, kids, t));
-    }
-    return out;
+  // Children one step in, each joined to the row above by a guide.
+  under(children, t) {
+    return v_flex().flex_none().ml(15).children(children.map((c, n) => this.branch(c, n === children.length - 1, t)));
   }
 
-  block(r, kids, t) {
-    const tabs = this.tabsOf(r.w);
-    // A space with anything under it is a folder: its own tabs go inside too, so a
-    // click on any folder row folds it and a click on a tab goes there.
-    const own = tabs.length > 1 || kids.length > 0 ? tabs : [];
-    const parent = own.length > 0 || kids.length > 0;
-    const open = !this.spaceFolds.has(r.w.id);
-    const children = [...own.map((c) => this.tabRow(r.w, c, t)), ...kids.map((k) => this.block(k, [], t))];
-    return v_flex().id(`block-${r.w.id}`).flex_none().gap(1)
-      .child(this.row({ ...r, parent, open, single: !own.length && tabs.length === 1 ? tabs[0] : null }, t))
-      .when(parent && open, (el) => el.child(v_flex().flex_none().ml(15).children(children.map((c, n) => this.branch(c, n === children.length - 1, t)))));
+  // What folds under a row: its children, kept drawn while folded so the box can slide
+  // between their height and nothing. `height`: theirs open (heightOf), known ahead
+  // because every row is ROW tall.
+  folding(children, height, open, t) {
+    return div().flex_none().overflow_hidden()
+      .h(open ? 1 + height : 0).opacity(open ? 1 : 0)
+      .transition("height", { duration: 180, easing: "ease-out" })
+      .transition("opacity", { duration: 140, easing: "ease-out" })
+      .child(div().pt(1).child(this.under(children, t)));
   }
 
-  // One child under its parent, joined by a guide: a line down from the parent's
-  // icon and a rounded elbow into the child's. The last child's line stops at its elbow.
+  // How tall the children a node lists are when shown, in px: each child is a guide's
+  // 1 px over its own height; a row is ROW, and an open block adds 1 px and its children.
+  heightOf(n) {
+    const under = (list) => list.reduce((h, c) => h + 1 + c, 0);
+    const block = (k) => {
+      if (k.kind === "tab") return ROW;
+      if (k.kind === "section") return ROW + 1 + under(k.children.map(() => ROW));
+      const open = k.kind === "repo" ? !this.spaceFolds.has(`repo:${k.id}`) : k.children.length > 0 && !this.spaceFolds.has(k.id);
+      return ROW + (open ? 1 + this.heightOf(k) : 0);
+    };
+    return under(n.children.map(block));
+  }
+
+  // A line down from the parent's icon and a rounded elbow into the child's.
+  // The last child's line stops at its elbow.
   branch(child, last, t) {
     const line = t.input;
     return div().relative().flex_none().pl(10).pt(1)
@@ -412,7 +397,155 @@ export default class Spaces extends View {
   fold(id, cx) {
     this.spaceFolds.has(id) ? this.spaceFolds.delete(id) : this.spaceFolds.add(id);
     localStorage.setItem("spaces.folded", JSON.stringify([...this.spaceFolds]));
+    cx?.notify();
+  }
+
+  chevron(id, open, t) {
+    return div().id(`fold-${id}`).size(16).flex_none().flex().items_center().justify_center().rounded(4).text_color(t.dim)
+      .hover((s) => s.text_color(t.foreground))
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => { cx.stop_propagation(); this.fold(id, cx); })
+      .child(svg(`mods/workspace-chrome/chevron-${open ? "down" : "right"}.svg`).size(12));
+  }
+
+  // A repo with several spaces in it: a header that folds them, and a new worktree there.
+  repoBlock(n, t, x, shown = true) {
+    const key = `repo:${n.id}`;
+    const open = !this.spaceFolds.has(key);
+    if (shown) this.nav.push({ id: key, fold: key, open, go: () => this.fold(key) });
+    return v_flex().id(`block-${key}`).flex_none()
+      .child(this.repoHead(n, t))
+      .child(this.folding(n.children.map((c) => this.spaceBlock(c, t, x + STEP, shown && open, key)), this.heightOf(n), open, t));
+  }
+
+  repoHead(n, t) {
+    const key = `repo:${n.id}`;
+    const open = !this.spaceFolds.has(key);
+    const hot = this.hotRepo === n.id;
+    const from = n.children.find((c) => !c.w.tui && !c.g?.linked) ?? n.children.find((c) => !c.w.tui);
+    const head = h_flex().id(`repo-${n.id}`).relative().pl(8).pr(4).h(28).flex_none().gap(9).items_center().rounded(8)
+      .text_size(13).font_bold().text_color(hot ? t.foreground : t.muted).cursor_pointer()
+      .hover((s) => s.bg(t.hover))
+      .on_hover((over, cx) => {
+        if (over) this.hotRepo = n.id;
+        else if (this.hotRepo === n.id) this.hotRepo = null;
+        cx.notify();
+      })
+      .on_click((_e, cx) => this.fold(key, cx))
+      .child(this.chevron(key, open, t))
+      .child(div().flex_1().min_w(0).truncate().child(n.name))
+      .when(!open && !hot, (el) => el.child(div().flex_none().pr(4).text_size(11.5).text_color(t.dim).child(String(n.children.length))))
+      .when(hot && Boolean(from), (el) => el.child(div().id(`repo-add-${n.id}`).size(22).flex_none().flex().items_center().justify_center().rounded(6)
+        .hover((s) => s.bg(t.hover).text_color(t.foreground))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_click((_e, cx) => {
+          cx.stop_propagation();
+          openOverlay({ mod: "sleeve-worktree", kind: "dialog", frame: "none", width: 460, height: 158, props: { space: from.id, action: "new" } });
+        })
+        .child(svg("mods/sleeve-chrome/icons/plus.svg").size(15))))
+      .child(this.ring(key, t));
+    return head;
+  }
+
+  // A space, and its tabs under it when it has several. When they work on different
+  // branches, the branches are a level of their own: each with its tabs under it.
+  // `shown`: not inside something folded (only shown rows take the keyboard);
+  // `up`: the nav id of the row it hangs under.
+  spaceBlock(n, t, x, shown = true, up = null) {
+    const parent = n.children.length > 0;
+    const open = parent && !this.spaceFolds.has(n.id);
+    if (shown) this.nav.push({ id: n.id, up, fold: parent ? n.id : null, open, card: () => this.spaceCard(n.w, n.g, n.single), go: () => this.goSpace(n.w, n.single) });
+    const row = this.row({ ...n, parent, open, x, sectioned: n.children[0]?.kind === "section" }, t);
+    const inner = shown && open;
+    const kids = n.children.map((c) => (c.kind === "section" ? this.branchBlock(c, t, inner, n.id) : this.tabRow(c.w, c.c, t, inner, n.id)));
+    return v_flex().id(`block-${n.id}`).flex_none()
+      .child(row)
+      .when(parent, (el) => el.child(this.folding(kids, this.heightOf(n), open, t)));
+  }
+
+  goSpace(w, single) {
+    if (w.tui) return setShared("tui.open", w.address);
+    if (!w.active) run("space.select", { id: w.id });
+    if (single && !single.active) run("tab.select", { id: single.id });
+  }
+
+  // The keyboard cursor: a hairline around the row it's on, while the list has the keyboard.
+  ring(id, t) {
+    return div().absolute().inset_0().rounded(8).when(this.keyboard && this.cursor === id, (el) => el.border_1().border_color(t.muted));
+  }
+
+  // The hover card beside row `id`, when it's that row's: a Popup pinned 10 px right of
+  // the row, 8 above its top, moved up as needed to stay inside the window.
+  cardAt(id, t) {
+    const props = this.stuckDrawing ? null : this.card.at(id);
+    if (!props) return div();
+    return div().absolute().top(-8).right(-10).size(0)
+      .child(Popup.new(`card-${id}`, div().size(0)).anchor("top_left")
+        .content(this.cardView.render(props, t, (cx) => this.card.close(cx))));
+  }
+
+  // The card of the keyboard's row, at once.
+  peek(cx) {
+    const row = this.nav.find((r) => r.id === this.cursor);
+    if (row?.card) this.card.over(row.id, row.card, cx, true);
+    else this.card.close(cx);
+  }
+
+  focus(cx) {
+    this.keyboard = true;
+    const active = spaces().find((s) => s.active);
+    const tab = active?.tabs.find((c) => c.active);
+    if (!this.nav.some((r) => r.id === this.cursor)) this.cursor = this.nav.some((r) => r.id === tab?.id) ? tab.id : active?.id ?? this.nav[0]?.id ?? null;
+    this.handle.focus();
+    this.reveal(this.cursor);
+    this.peek(cx);
+  }
+
+  // Up and down move; right opens what's folded, else steps into its first child;
+  // left folds what's open, else steps out to its parent; Enter goes there and back to
+  // the terminal; Esc goes back without moving.
+  key(e, cx) {
+    const at = this.nav.findIndex((r) => r.id === this.cursor);
+    const row = this.nav[at];
+    const leave = () => { this.keyboard = false; this.card.close(cx); run("pane.go", { direction: "right" }); };
+    if (e.key === "escape") leave();
+    else if (e.key === "down" || e.key === "up") {
+      const next = this.nav[Math.max(0, Math.min(this.nav.length - 1, at + (e.key === "down" ? 1 : -1)))];
+      if (next) this.cursor = next.id;
+    } else if (e.key === "right" && row) {
+      if (row.fold && !row.open) this.fold(row.fold);
+      else if (this.nav[at + 1]?.up === row.id) this.cursor = this.nav[at + 1].id;
+    } else if (e.key === "left" && row) {
+      if (row.fold && row.open) this.fold(row.fold);
+      else if (row.up) this.cursor = row.up;
+    } else if (e.key === "enter" && row) {
+      row.go();
+      // A repo isn't a place: Enter only folds it, and the keyboard stays.
+      if (!row.id.startsWith("repo:")) leave();
+    } else return;
+    if (this.keyboard && this.cursor !== row?.id) { this.reveal(this.cursor); this.peek(cx); }
+    cx.stop_propagation();
     cx.notify();
+  }
+
+  // A branch the space's tabs work on: a row like the others, its icon the branch's,
+  // its name muted (it isn't something to go to), ahead/behind on the right. A label:
+  // no hover, no card.
+  branchBlock(c, t, shown = true, up = null) {
+    return v_flex().flex_none().gap(1)
+      .child(this.branchHead(c, t))
+      .child(this.under(c.children.map((k) => this.tabRow(k.w, k.c, t, shown, up)), t));
+  }
+
+  branchHead(c, t) {
+    const g = c.g;
+    const head = h_flex().id(`section-${c.id}`).pl(8).pr(8).h(28).flex_none().gap(9).items_center()
+      .text_size(13).font_semibold().text_color(t.muted)
+      .child(div().size(16).flex_none().flex().items_center().justify_center().child(svg("mods/workspace-chrome/git-branch.svg").size(14).text_color(t.dim)))
+      .child(div().flex_1().min_w(0).truncate().child(g ? g.branch ?? "detached" : "not in a repo"))
+      .when(g?.ahead > 0, (el) => el.child(this.badge(`\u2191${g.ahead}`, t.done)))
+      .when(g?.behind > 0, (el) => el.child(this.badge(`\u2193${g.behind}`, t.blocked)));
+    return head;
   }
 
   // What a tab is doing, at a row's end: the close button while hovered.
@@ -426,22 +559,27 @@ export default class Spaces extends View {
       .when(!hot && (c.status === "blocked" || c.status === "done"), (el) => el.child(div().size(6).rounded(3).bg(t[c.status])));
   }
 
-  tabRow(w, c, t) {
+  // A tab: its program, name and state.
+  tabRow(w, c, t, shown = true, up = null) {
+    if (shown) this.nav.push({ id: c.id, up, fold: null, card: () => this.tabCard(w, c), go: () => { if (!w.active) run("space.select", { id: w.id }); if (!c.active) run("tab.select", { id: c.id }); } });
     const pane = lead(c.id, this.ps);
     const program = tabProgram(c, this.ps);
     const name = tabName(c, pane, program);
     const on = w.active && c.active;
     const hot = this.hotTab === c.id;
-    return h_flex().id(`tab-${c.id}`).pl(8).pr(8).h(28).flex_none().gap(9).items_center().rounded(8)
+    return h_flex().id(`tab-${c.id}`).relative().pl(8).pr(8).h(28).flex_none().gap(9).items_center().rounded(8)
       .text_size(13).font_semibold().text_color(on ? t.foreground : t.muted)
       .when(on, (el) => el.bg(t.selected))
       .when(!on, (el) => el.hover((s) => s.bg(t.hover).text_color(t.foreground)))
       .on_hover((over, cx) => {
         if (over) this.hotTab = c.id;
         else if (this.hotTab === c.id) this.hotTab = null;
+        if (over) this.card.over(c.id, () => this.tabCard(w, c), cx);
+        else this.card.out(c.id, cx);
         cx.notify();
       })
-      .on_mouse_down("left", (e) => {
+      .on_mouse_down("left", (e, cx) => {
+        this.card.close(cx);
         if (e.click_count === 2) return askRename("tab", c.id);
         if (!w.active) run("space.select", { id: w.id });
         if (!c.active) run("tab.select", { id: c.id });
@@ -452,17 +590,56 @@ export default class Spaces extends View {
       })
       .child(div().size(16).flex_none().flex().items_center().justify_center().child(programIcon(program, 16, on ? t.foreground : t.muted)))
       .child(div().flex_1().min_w(0).truncate().child(c.zoomed ? `${name} · zoomed` : name))
-      .child(this.state(c, hot, t));
+      .child(this.state(c, hot, t))
+      .child(this.ring(c.id, t))
+      .child(this.cardAt(c.id, t));
+  }
+
+  // What the hover card shows (card.js): the whole name, the agent's state and
+  // since when, what it's doing, and where it works.
+  tabCard(w, c) {
+    const ps = panes();
+    const pane = lead(c.id, ps);
+    const program = tabProgram(c, ps);
+    const name = tabName(c, pane, program);
+    const g = this.git.ofTab(w, c, ps) ?? null;
+    const title = (pane?.title ?? "").replace(/^[^\p{L}\p{N}~/.]+/u, "").trim();
+    return {
+      title: name,
+      icon: { program },
+      status: c.status,
+      since: c.status === "working" ? c.working_since : c.changed_at,
+      doing: program?.agent && title && title !== name ? title : null,
+      git: g,
+      folder: g?.top ?? pane?.cwd ?? null,
+      machine: w.machine,
+    };
+  }
+
+  spaceCard(w, g, single) {
+    if (single) return { ...this.tabCard(w, single), title: w.name };
+    if (w.tui) return { title: w.name, icon: { program: this.program(w) }, git: g, folder: g?.top ?? w.folder ?? null, machine: w.machine };
+    const shown = w.tabs.find((c) => c.active);
+    return {
+      title: w.name,
+      icon: { program: this.program(w) },
+      status: w.status,
+      since: w.status === "working" ? shown?.working_since : shown?.changed_at,
+      git: g,
+      folder: g?.top ?? place(w, panes()) ?? null,
+      machine: w.machine,
+    };
   }
 
   // Only what's unusual, under the name: "herdr \u00b7 spike". The repo or branch
   // goes when the name already says it (a worktree is named after its branch),
   // and master/main go: nearly every space is on one.
-  gitLine(g, tree, name) {
+  gitLine(g, inRepo, name, noBranch = false) {
+    if (noBranch) return inRepo || g.name.toLowerCase() === name.toLowerCase() ? "" : g.name;
     const raw = g.branch ?? "detached";
     const same = (a) => a.toLowerCase().replace(/\//g, "-") === name.toLowerCase();
     const branch = same(raw) || raw === "master" || raw === "main" ? "" : raw;
-    const repo = tree || same(g.name) ? "" : g.name;
+    const repo = inRepo || same(g.name) ? "" : g.name;
     return [repo, branch].filter(Boolean).join(" \u00b7 ");
   }
 
@@ -489,20 +666,37 @@ export default class Spaces extends View {
         .child(svg("mods/workspace-chrome/branch.svg").size(7).text_color("#ffffff"))));
   }
 
-  // A space: a fold chevron when things hang under it, else its one tab's program.
-  // On the right only what's unusual about its git, and its tab's state.
-  row({ w, i, g, tree, parent, open, single }, t) {
-    const line = g ? this.gitLine(g, tree, w.name) : "";
-    const lists = parent && !w.tui;
-    const on = w.active && !lists;
+  // Whether dim text on the right has room beside `name` in a row `x` in from the list's
+  // edge, with the badges `ab` and a state slot (`state`) after it. The name keeps its
+  // width; the text takes what's left, cut at its end, and goes when that's under
+  // MIN_SIDE (a few letters and "…" say nothing). Widths are estimates of the fonts.
+  fits(x, name, side, ab = [], state = true, icon = false) {
+    if (!this.width) return false;
+    const room = this.width - 16 - x - 16 - 16 - 9 - (state ? 29 : 0) - ab.reduce((n, b) => n + b.length * 7 + 9, 0);
+    return name.length * 6.4 + 6 + 9 + Math.min(side.length * 6.3, MIN_SIDE) + (icon ? 15 : 0) <= room;
+  }
+
+  // A space's name in its repo's group: one nobody named is called after the repo,
+  // which the header already says, so there it goes by its branch.
+  title(w, g, inRepo) {
+    return inRepo && g && !w.named && w.name.toLowerCase() === g.name.toLowerCase() ? (g.branch ?? "detached") : w.name;
+  }
+
+  // A space's row: a fold chevron when its tabs hang under it, else its one tab's
+  // program. On the right only what's unusual about its git, and its tab's state.
+  // A click always goes to the space; only the chevron folds.
+  row({ w, i, g, inRepo, parent, open, single, x, sectioned }, t) {
+    const name = this.title(w, g, inRepo);
+    const ab = sectioned ? [] : [g?.ahead > 0 && `\u2191${g.ahead}`, g?.behind > 0 && `\u2193${g.behind}`].filter(Boolean);
+    // Sectioned, its tabs' sections say the branches.
+    const full = g ? this.gitLine(g, inRepo, name, sectioned) : "";
+    const line = full && this.fits(x, name, full, ab, Boolean(single), g.linked) ? full : "";
+    // With its tabs listed, the shown tab carries the highlight.
+    const on = w.active && !open;
     const hot = single && this.hotTab === single.id;
     const program = w.tui ? this.program(w) : single ? tabProgram(single, this.ps) : null;
     const slot = parent
-      ? div().id(`fold-${w.id}`).size(16).flex_none().flex().items_center().justify_center().rounded(4).text_color(t.dim)
-        .hover((s) => s.text_color(t.foreground))
-        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-        .on_click((_e, cx) => { cx.stop_propagation(); this.fold(w.id, cx); })
-        .child(svg(`mods/workspace-chrome/chevron-${open ? "down" : "right"}.svg`).size(12))
+      ? this.chevron(w.id, open, t)
       : div().size(16).flex_none().flex().items_center().justify_center()
         .child(programIcon(program, 16, on ? t.foreground : t.muted));
     return h_flex()
@@ -526,20 +720,24 @@ export default class Spaces extends View {
           .when(this.pressed < i, line => line.bottom(0))
           .when(this.pressed > i, line => line.top(0)),
       ))
-      .when(Boolean(single), (el) => el.on_hover((over, cx) => {
-        if (over) this.hotTab = single.id;
-        else if (this.hotTab === single.id) this.hotTab = null;
+      .on_hover((over, cx) => {
+        if (single) {
+          if (over) this.hotTab = single.id;
+          else if (this.hotTab === single.id) this.hotTab = null;
+        }
+        if (over && this.pressed === null) this.card.over(w.id, () => this.spaceCard(w, g, single), cx);
+        else this.card.out(w.id, cx);
         cx.notify();
-      }))
-      .on_mouse_down("left", (e) => {
+      })
+      .on_mouse_down("left", (e, cx) => {
+        this.card.close(cx);
         if (w.tui) return setShared("tui.open", w.address);
         if (e.click_count === 2 && single) return askRename("tab", single.id);
         this.pressed = i;
         this.over = i;
-        // A space that lists its tabs is a folder: its tabs are where you go.
-        if (!lists) run("space.select", { id: w.id });
+        if (!w.active) run("space.select", { id: w.id });
       })
-      .on_mouse_move((_e, cx) => {
+      .on_mouse_move((e, cx) => {
         const source = spaces()[this.pressed];
         const over = source && (source.machine ?? null) === (w.machine ?? null) ? i : null;
         if (this.pressed !== null && this.over !== over) {
@@ -553,19 +751,21 @@ export default class Spaces extends View {
         this.pressed = null;
         this.over = null;
         if (from !== null && over === i && from !== i) run("space.move", { id: spaces()[from].id, index: i + 1 });
-        else if (from === i && lists) return this.fold(w.id, cx);
         cx.notify();
       })
       .on_mouse_down("right", () => { if (!w.tui) this.menu(w); })
       .child(slot)
-      .child(div().flex_shrink(1).min_w(0).truncate().child(w.name))
+      // Beside a branch the name keeps its width (fits() made room); alone it truncates.
+      .child(line ? div().flex_none().child(name) : div().flex_shrink(1).min_w(0).truncate().child(name))
       .child(h_flex().flex_1().min_w(0).overflow_hidden().pl(6).justify_end().gap(4).items_center().text_size(11.5).font_semibold().text_color(t.dim)
         .when(Boolean(line), (el) => el.child(h_flex().min_w(0).overflow_hidden().gap(4).items_center()
           .when(Boolean(g?.linked), (el) => el.child(svg("mods/workspace-chrome/git-branch.svg").size(11).flex_none()))
           .child(div().min_w(0).truncate().child(line)))))
-      .when(g?.ahead > 0, (el) => el.child(this.badge(`\u2191${g.ahead}`, t.done)))
-      .when(g?.behind > 0, (el) => el.child(this.badge(`\u2193${g.behind}`, t.blocked)))
-      .when(Boolean(single), (el) => el.child(this.state(single, hot, t)));
+      .when(!sectioned && g?.ahead > 0, (el) => el.child(this.badge(`\u2191${g.ahead}`, t.done)))
+      .when(!sectioned && g?.behind > 0, (el) => el.child(this.badge(`\u2193${g.behind}`, t.blocked)))
+      .when(Boolean(single), (el) => el.child(this.state(single, hot, t)))
+      .child(this.ring(w.id, t))
+      .child(this.cardAt(w.id, t));
   }
 
   compact({ w, g }, t) {
@@ -606,12 +806,35 @@ export default class Spaces extends View {
       changed = true;
     }
     if (changed) setShared("space.colors", kept);
+    const rows = this.grouped(t, collapsed);
+    this.top = Math.max(0, Math.min(this.top, this.contentH - this.viewH));
+    this.stuckDrawing = true;
+    const stuck = this.stuck(this.top);
+    const pinned = stuck.map((s) => this.stuckRow(s, t, collapsed));
+    this.stuckDrawing = false;
+    const below = stuck.reduce((b, s) => Math.max(b, s.at + s.head.h), 0);
     return v_flex().size_full().min_h(0).bg(t.chrome).text_size(13).font_bold()
       .child(div().relative().flex_1().min_h(0)
-        .child(v_flex().id("spaces-list").size_full().px(8).pt(6).pb(24).gap(2).overflow_y_scroll()
+        // Scrolled here rather than by overflow_y_scroll: the headers on top need to know how far.
+        .child(v_flex().id("spaces-list").size_full().overflow_hidden()
+          .track_focus(this.handle)
+          .on_key_down((e, cx) => this.key(e, cx))
+          .on_mouse_down("left", (_e, cx) => { if (this.keyboard) { this.keyboard = false; this.card.close(cx); cx.notify(); } })
+          .on_size_change((size, cx) => {
+            if (size.width === this.width && size.height === this.viewH) return;
+            this.width = size.width;
+            this.viewH = size.height;
+            cx.notify();
+          })
           .on_mouse_up("left", (_e, cx) => { this.pressed = null; cx.notify(); })
-          .children(this.grouped(t, collapsed)))
+          .on_scroll_wheel((e, cx) => this.scroll(e, cx))
+          .child(v_flex().id("spaces-rows").w_full().flex_none().mt(-this.top).px(8).pt(6).pb(24).gap(2)
+            .on_size_change((size, cx) => { if (size.height !== this.contentH) { this.contentH = size.height; cx.notify(); } })
+            .children(rows)))
         .child(div().absolute().top(0).left(0).right(0).h(14).child(fade(t.chrome, 14, true)))
-        .child(div().absolute().bottom(0).left(0).right(0).h(28).child(fade(t.chrome, 28, false))));
+        .child(div().absolute().bottom(0).left(0).right(0).h(28).child(fade(t.chrome, 28, false)))
+        .when(stuck.length > 0, (el) => el
+          .child(div().absolute().top(0).left(0).right(0).h(below).children(pinned))
+          .child(div().absolute().top(below).left(0).right(0).h(10).child(fade(t.chrome, 10, true)))));
   }
 }
