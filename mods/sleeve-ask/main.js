@@ -1,11 +1,12 @@
 // Ask Claude: one line for a question or a problem, and Claude starts on it in the
 // right place. The place is a space: the one the props name (a context menu), else the
-// one whose name the text mentions, else the shown one; ↑/↓ or Tab pick another.
+// one whose name the text mentions, else the shown one; ↑/↓ or Tab pick another, and a
+// click on it lists them all.
 // Enter starts Claude in a new tab there; ⌘Enter in a new worktree of that space's repo.
 // Opened by mod.open (keys, palette, the + menu) or openOverlay with props { space? }.
 
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, InputState, Input } from "gpui-base";
+import { v_flex, h_flex, InputState, Input, Popup } from "gpui-base";
 import { run, props, closeOverlay, theme, spaces, panes, exec, home } from "herdr";
 
 const CLAUDE = ["claude"];
@@ -23,6 +24,9 @@ function place(s) {
   const tabs = new Set((s.tabs ?? []).map((c) => c.id));
   return panes().find((p) => tabs.has(p.tab) && p.cwd)?.cwd || s.folder;
 }
+
+// A folder with its home as ~, here or on another machine.
+const short = (path) => (path ?? "").replace(home(), "~").replace(/^\/(?:home|Users)\/[^/]+(?=\/|$)/, "~");
 
 const base = (path) => (path ?? "").replace(/\/+$/, "").split("/").pop();
 
@@ -54,9 +58,14 @@ export default class SleeveAsk extends View {
     this.text = "";
     this.error = "";
     this.busy = false;
+    this.listed = false; // the list of places is open
     this.input = InputState.new({ value: "", placeholder: "A question or a problem…" });
     this.input.on("change", (_e, cx) => { this.text = this.input.value(); this.guess(); cx.notify(); });
-    this.input.on("submit", (e, cx) => this.go(Boolean(e?.secondary), cx));
+    this.input.on("submit", (e, cx) => {
+      // With the list open, Enter takes the highlighted place.
+      if (this.listed) { this.listed = false; cx.notify(); return; }
+      this.go(Boolean(e?.secondary), cx);
+    });
     this.input.focus();
     cx.timer.after(100, () => this.input.focus());
     this.handle = cx.focus_handle();
@@ -118,6 +127,20 @@ export default class SleeveAsk extends View {
     return "";
   }
 
+  // Every place, the picked one marked; a click takes one.
+  list(t) {
+    return v_flex().id("ask-list").w(420).max_h(300).overflow_y_scrollbar().p(4).gap(1)
+      .rounded(10).border_1().border_color(t.input).bg(t.popover).shadow_2xl().text_size(12)
+      .on_mouse_down_out((_e, cx) => { this.listed = false; cx.notify(); })
+      .children(this.places.map((p, i) => h_flex().id(`ask-p-${i}`).h(30).px(8).gap(8).items_center().rounded(6).cursor_pointer()
+        .bg(i === this.at ? t.selected ?? t.hover : "#00000000").hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => { this.at = i; this.fixed = true; this.listed = false; this.input.focus(); cx.notify(); })
+        .child(div().flex_none().max_w(170).truncate().font_semibold().text_color(t.foreground).child(p.name))
+        .child(div().flex_1().min_w(0).truncate().font_medium().text_color(t.dim).child(short(p.folder) === p.name ? "" : short(p.folder)))
+        .when(Boolean(p.machine), (el) => el.child(div().flex_none().h(18).px(6).flex().items_center().rounded(5)
+          .border_1().border_color(t.border).text_size(10.5).font_semibold().text_color(t.muted).child(p.machine)))));
+  }
+
   render(cx) {
     const t = theme();
     const c = this.places[this.at];
@@ -130,7 +153,7 @@ export default class SleeveAsk extends View {
       .id("sleeve-ask")
       .track_focus(this.handle)
       .on_key_down((e, cx) => {
-        if (e.key === "escape") this.close();
+        if (e.key === "escape") { if (this.listed) this.listed = false; else this.close(); }
         else if (e.key === "down" || (e.key === "tab" && !e.modifiers.shift)) this.pick(1);
         else if (e.key === "up" || e.key === "tab") this.pick(-1);
         else return;
@@ -144,11 +167,13 @@ export default class SleeveAsk extends View {
       // Where it starts: the picked space, its folder dim beside it.
       .child(h_flex().h(40).flex_none().px(16).gap(8).items_center().text_size(12).border_b(1).border_color(t.border)
         .child(div().flex_none().text_color(t.dim).child("In"))
-        .child(h_flex().id("ask-place").flex_none().h(24).px(8).gap(6).items_center().rounded(7).cursor_pointer()
+        .child(h_flex().id("ask-place").relative().flex_none().h(24).px(8).gap(6).items_center().rounded(7).cursor_pointer()
           .bg(t.raised ?? t.hover).text_color(t.foreground).hover((s) => s.bg(t.hover))
-          .on_click((_e, cx) => { this.pick(1); cx.notify(); })
+          .on_click((_e, cx) => { this.listed = !this.listed; cx.notify(); })
           .child(c?.name ?? "No space")
-          .child(svg("mods/workspace-chrome/chevron-down.svg").size(11).text_color(t.dim)))
+          .child(svg("mods/workspace-chrome/chevron-down.svg").size(11).text_color(t.dim))
+          .child(div().absolute().top(28).left(0).size(0).child(Popup.new("ask-places", div().size(0)).anchor("top_left")
+            .when(this.listed, (el) => el.content(this.list(t))))))
         .child(div().flex_1().min_w(0).truncate().font_medium().text_color(this.error ? t.blocked : t.dim)
           .child(this.error || (this.busy ? "Making the worktree…" : c ? `${c.machine ? `${c.machine}:` : ""}${(c.folder ?? "").replace(home(), "~")}` : "")))
         .child(div().flex_none().font_medium().text_color(t.dim).child("↑↓")))

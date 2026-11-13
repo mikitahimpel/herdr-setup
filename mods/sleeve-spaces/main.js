@@ -5,7 +5,7 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, Popup } from "gpui-base";
-import { spaces, machines, panes, run, openOverlay, hc, theme, shared, setShared, layout, keys, nextCommand, home } from "herdr";
+import { spaces, machines, panes, run, openOverlay, hc, theme, shared, setShared, layout, keys, nextCommand, home, terminals } from "herdr";
 import { askClose, askRename } from "./ask.js";
 import { GitFacts, lead, place } from "./git.js";
 import { Card } from "./card.js";
@@ -211,7 +211,14 @@ export default class Spaces extends View {
     const ready = (w) => this.shown.has(w.id) || this.git.known(w, ps) || Date.now() - (this.born[w.id] ??= Date.now()) > 1500;
     for (const w of sp) if (!this.shown.has(w.id) && ready(w)) this.shown.add(w.id);
     const tabG = (w) => Object.fromEntries((w.tabs ?? []).map((c) => [c.id, this.git.ofTab(w, c, ps)]).filter(([, g]) => g !== undefined));
-    const list = sp.map((w, i) => ({ w, i, g: this.git.of(w, ps) ?? null, tabG: tabG(w) })).filter((r) => this.shown.has(r.w.id));
+    // Every live terminal an agent started (hc run) without a pane of its own, under the
+    // tab whose terminal started it: sub-agents and the programs they run.
+    const all = terminals().filter((k) => k.state === "live");
+    const paned = new Set(ps.map((p) => p.terminal).filter(Boolean));
+    const kids = (addr, depth) => all.filter((k) => k.parent === addr && !paned.has(k.address))
+      .flatMap((k) => [{ k, depth }, ...kids(k.address, depth + 1)]);
+    const subs = (w) => Object.fromEntries((w.tabs ?? []).map((c) => [c.id, ps.filter((p) => p.tab === c.id && p.terminal).flatMap((p) => kids(p.terminal, 0))]));
+    const list = sp.map((w, i) => ({ w, i, g: this.git.of(w, ps) ?? null, tabG: tabG(w), subs: subs(w) })).filter((r) => this.shown.has(r.w.id));
     return [...list, ...this.sessions()];
   }
 
@@ -262,7 +269,7 @@ export default class Spaces extends View {
     const GAP = 2; // between the list's rows
     // A node at `y`, `x` in; returns its height.
     const at = (n, y, x, up) => {
-      if (n.kind === "tab") { rows.set(n.id, { y, up }); return ROW; }
+      if (n.kind === "tab" || n.kind === "sub") { rows.set(n.id, { y, up }); return ROW; }
       const id = n.kind === "repo" ? `repo:${n.id}` : n.id;
       if (n.kind !== "section") rows.set(id, { y, up });
       const open = n.kind === "section" || (n.kind === "repo" ? !this.spaceFolds.has(id) : n.children.length > 0 && !this.spaceFolds.has(n.id));
@@ -376,8 +383,8 @@ export default class Spaces extends View {
   heightOf(n) {
     const under = (list) => list.reduce((h, c) => h + 1 + c, 0);
     const block = (k) => {
-      if (k.kind === "tab") return ROW;
-      if (k.kind === "section") return ROW + 1 + under(k.children.map(() => ROW));
+      if (k.kind === "tab" || k.kind === "sub") return ROW;
+      if (k.kind === "section") return ROW + 1 + under(k.children.map(block));
       const open = k.kind === "repo" ? !this.spaceFolds.has(`repo:${k.id}`) : k.children.length > 0 && !this.spaceFolds.has(k.id);
       return ROW + (open ? 1 + this.heightOf(k) : 0);
     };
@@ -457,7 +464,7 @@ export default class Spaces extends View {
     if (shown) this.nav.push({ id: n.id, up, fold: parent ? n.id : null, open, card: () => this.spaceCard(n.w, n.g, n.single), go: () => this.goSpace(n.w, n.single) });
     const row = this.row({ ...n, parent, open, x, sectioned: n.children[0]?.kind === "section" }, t);
     const inner = shown && open;
-    const kids = n.children.map((c) => (c.kind === "section" ? this.branchBlock(c, t, inner, n.id) : this.tabRow(c.w, c.c, t, inner, n.id)));
+    const kids = n.children.map((c) => (c.kind === "section" ? this.branchBlock(c, t, inner, n.id) : c.kind === "sub" ? this.subRow(c, t, inner, n.id) : this.tabRow(c.w, c.c, t, inner, n.id)));
     return v_flex().id(`block-${n.id}`).flex_none()
       .child(row)
       .when(parent, (el) => el.child(this.folding(kids, this.heightOf(n), open, t)));
@@ -535,7 +542,7 @@ export default class Spaces extends View {
   branchBlock(c, t, shown = true, up = null) {
     return v_flex().flex_none().gap(1)
       .child(this.branchHead(c, t))
-      .child(this.under(c.children.map((k) => this.tabRow(k.w, k.c, t, shown, up)), t));
+      .child(this.under(c.children.map((k) => (k.kind === "sub" ? this.subRow(k, t, shown, up) : this.tabRow(k.w, k.c, t, shown, up))), t));
   }
 
   branchHead(c, t) {
@@ -594,6 +601,29 @@ export default class Spaces extends View {
       .child(this.state(c, hot, t))
       .child(this.ring(c.id, t))
       .child(this.cardAt(c.id, t));
+  }
+
+  // A sub-agent an agent started (hc run), with no pane: a tab's type, muted, stepped in
+  // under the tab that started it (by a margin, so the highlight starts where the row
+  // does; the tab's guide runs on to it). A click peeks at it over the tab; from there
+  // it can be kept as a tab.
+  subRow(n, t, shown = true, up = null) {
+    const k = n.k;
+    const step = 22 + 14 * n.depth;
+    const peek = () => run("terminal.peek", { terminal: k.address });
+    if (shown) this.nav.push({ id: n.id, up, fold: null, go: peek });
+    const st = k.status === "error" ? "blocked" : k.status;
+    const name = k.name || k.template || k.program?.name || "agent";
+    return h_flex().id(n.id).relative().ml(step).pl(8).pr(8).h(28).flex_none().gap(9).items_center().rounded(8)
+      .text_size(13).font_semibold().text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .on_mouse_down("left", (_e, cx) => { this.card.close(cx); peek(); })
+      .child(div().absolute().left(-step).top(13).w(step - 4).h(1).bg(t.input))
+      .child(div().size(16).flex_none().flex().items_center().justify_center().child(programIcon(k.program, 16, t.muted)))
+      .child(div().flex_1().min_w(0).truncate().child(name))
+      .child(div().size(20).flex_none().flex().items_center().justify_center()
+        .when(st === "working", (el) => el.child(svg("mods/workspace-chrome/spinner.svg").size(11).text_color(t.working).spin(1500)))
+        .when(st === "blocked" || st === "done", (el) => el.child(div().size(6).rounded(3).bg(t[st]))))
+      .child(this.ring(n.id, t));
   }
 
   // What the hover card shows (card.js): the whole name, the agent's state and

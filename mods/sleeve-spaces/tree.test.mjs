@@ -55,3 +55,13 @@ console.log("tree: ok");
   assert.deepEqual(flat.map((n) => n.kind), ["tab", "tab", "tab", "tab", "tab"]);
   console.log("sections: ok");
 }
+
+// Sub-agents follow their tab, in its section; with one tab, under the space.
+{
+  const k = (address) => ({ address });
+  const one = buildTree([{ w: sp("m", ["m1"]), i: 0, g: null, subs: { m1: [{ k: k("t3"), depth: 0 }] } }], [])[0].nodes[0];
+  assert.deepEqual(one.children.map((n) => [n.kind, n.id]), [["sub", "sub:t3"]]);
+  const two = buildTree([{ w: sp("m", ["m1", "m2"]), i: 0, g: null, subs: { m1: [{ k: k("t3"), depth: 0 }, { k: k("t4"), depth: 1 }] } }], [])[0].nodes[0];
+  assert.deepEqual(two.children.map((n) => n.id), ["m1", "sub:t3", "sub:t4", "m2"]);
+  console.log("subs: ok");
+}

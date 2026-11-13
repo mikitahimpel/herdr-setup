@@ -4,6 +4,8 @@
 // - A repo is a group once two or more of the machine's spaces are in it, main checkout
 //   or worktree alike. It stands where its first space would, its spaces keep their order.
 // - A space lists its tabs when it has more than one; with one it is a single row.
+// - Under a tab: the sub-agents its agents started (hc run) that have no pane of their
+//   own, each a row after it; with one tab, under the space's row.
 // - A space whose tabs work on different branches (a manager and its workers, each in
 //   a worktree) lists them in sections, one per branch: its own branch's first.
 //
@@ -12,6 +14,7 @@
 // rows: [{ w, i, g, tabG }] in space order. w: a space (or a TUI session, w.tui), i: its
 // index, g: its git facts ({ repo, name, branch, linked, ... }) or null outside a repo,
 // tabG: tab id -> that tab's git facts (missing: not known yet, taken as the space's).
+// subs: tab id -> [{ k: terminal, depth }], its pane-less sub-agents depth first.
 // remote: names of the other machines; [] draws no machine groups.
 // Returns [{ machine, nodes }], this computer (null) first.
 export function buildTree(rows, remote) {
@@ -52,8 +55,10 @@ const checkout = (g) => (g ? `${g.repo}\n${g.branch ?? ""}` : "");
 function sections(w, g, tabs) {
   const own = checkout(g);
   const groups = new Map();
+  let k = own;
   for (const t of tabs) {
-    const k = t.g === undefined ? own : checkout(t.g);
+    // A sub-agent stays in its tab's section.
+    if (t.kind !== "sub") k = t.g === undefined ? own : checkout(t.g);
     if (!groups.has(k)) groups.set(k, { kind: "section", id: `${w.id}\n${k}`, g: t.g === undefined ? g : t.g, children: [] });
     groups.get(k).children.push(t);
   }
@@ -62,9 +67,10 @@ function sections(w, g, tabs) {
   return first ? [first, ...[...groups.values()].filter((s) => s !== first)] : [...groups.values()];
 }
 
-function spaceNode({ w, i, g, tabG = {} }, inRepo) {
+function spaceNode({ w, i, g, tabG = {}, subs = {} }, inRepo) {
   const tabs = tabsOf(w);
-  const nodes = tabs.map((c) => ({ kind: "tab", id: c.id, w, c, g: tabG[c.id] }));
+  const under = (c) => (subs[c.id] ?? []).map(({ k, depth }) => ({ kind: "sub", id: `sub:${k.address}`, w, c, k, depth }));
+  const nodes = tabs.flatMap((c) => [{ kind: "tab", id: c.id, w, c, g: tabG[c.id] }, ...under(c)]);
   return {
     kind: "space",
     id: w.id,
@@ -73,7 +79,7 @@ function spaceNode({ w, i, g, tabG = {} }, inRepo) {
     g,
     inRepo,
     single: tabs.length === 1 ? tabs[0] : null,
-    children: tabs.length > 1 ? sections(w, g, nodes) : [],
+    children: tabs.length > 1 ? sections(w, g, nodes) : tabs.length === 1 ? under(tabs[0]) : [],
   };
 }
 

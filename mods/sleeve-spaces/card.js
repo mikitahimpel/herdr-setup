@@ -94,9 +94,10 @@ export class Card {
       // Whatever else is pressed, it goes: a card left behind never stays in the way.
       .on_mouse_down_out((_e, cx) => close(cx))
       .border_1().border_color(t.input).bg(t.popover).shadow_2xl()
-      .child(h_flex().px(14).pt(12).pb(facts.length ? 10 : 12).gap(10).items_center()
-        .child(this.icon(p, t))
-        .child(div().flex_1().min_w(0).text_size(13.5).font_bold().text_color(t.foreground).child(p.title ?? ""))
+      // A long title wraps: the icon and the state stay with its first line.
+      .child(h_flex().px(14).pt(12).pb(facts.length ? 10 : 12).gap(10).items_start()
+        .child(div().h(22).flex_none().flex().items_center().child(this.icon(p, t)))
+        .child(div().flex_1().min_w(0).min_h(22).flex().items_center().text_size(13.5).font_bold().text_color(t.foreground).child(p.title ?? ""))
         .when(Boolean(p.status), (el) => el.child(this.status(p, t))))
       .when(facts.length > 0, (el) => el
         .child(div().mx(14).h(1).bg(t.border))
