@@ -84,6 +84,14 @@ function tabName(w, c, ps) {
   return plain ? w.name : title;
 }
 
+// A worktree made by Herdr, when git can't be asked (its machine away): its path,
+// ~/.herdr/worktrees/<repo>/<branch...>, still names its repo and branch.
+function fromPath(folder, machine) {
+  const m = /^(.*\/\.herdr\/worktrees\/([^/]+)\/(.+?))\/*$/.exec(folder ?? "");
+  if (!m) return null;
+  return { name: m[2], branch: m[3], ahead: 0, behind: 0, linked: true, top: m[1], repo: JSON.stringify([machine ?? null, m[2]]), guessed: true };
+}
+
 // A sub-terminal's state in three words: at work, waiting for the person, or finished.
 function subState(k) {
   if (k.status === "working") return "working";
@@ -168,10 +176,11 @@ export default class Work extends View {
       for (const c of (w.tabs ?? []).filter((c) => !c.settled || c.active)) {
         const known = this.git.ofTab(w, c, ps) ?? this.git.of(w, ps);
         if (known === undefined && Date.now() - this.started < 2500) continue;
-        const g = known ?? null;
+        const folder = lead(c.id, ps)?.cwd ?? w.folder;
+        const g = known ?? fromPath(folder, w.machine);
         const subs = ps.filter((p) => p.tab === c.id && p.terminal).flatMap((p) => kids(p.terminal, 0))
           .sort((a, b) => order[subState(a.k)] - order[subState(b.k)]);
-        rows.push({ w, c, g, name: tabName(w, c, ps), program: tabProgram(c, ps), folder: lead(c.id, ps)?.cwd ?? w.folder, subs });
+        rows.push({ w, c, g, name: tabName(w, c, ps), program: tabProgram(c, ps), folder, subs });
       }
     }
     const needs = rows.filter((r) => r.c.status === "blocked" || r.subs.some((s) => subState(s.k) === "blocked"));
@@ -181,7 +190,8 @@ export default class Work extends View {
       // folder), each with its tabs, in the order they first come.
       const groups = new Map();
       for (const r of rows.filter((r) => (r.w.machine ?? null) === machine)) {
-        const key = r.g?.repo ?? `other:${machine ?? ""}`;
+        // By name, so a worktree known only by its path joins its repo.
+        const key = r.g ? `repo:${machine ?? ""}:${r.g.name}` : `other:${machine ?? ""}`;
         if (!groups.has(key)) groups.set(key, { key, name: r.g ? r.g.name : "Other", repo: Boolean(r.g), places: new Map() });
         const at = r.g ? r.g.top : r.folder ?? "";
         const places = groups.get(key).places;
