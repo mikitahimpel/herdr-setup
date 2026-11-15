@@ -347,14 +347,21 @@ export default class Work extends View {
   // ahead/behind; outside a repo the folder. The tabs working there hang under it.
   placeHead(p, t) {
     const g = p.g;
-    return h_flex().id(`place-${p.key}`).h(24).flex_none().ml(10).pl(6).pr(6).gap(6).items_center()
+    const hot = this.hotPlace === p.key;
+    const w = p.rows[0]?.w;
+    return h_flex().id(`place-${p.key}`).h(24).flex_none().ml(10).pl(6).pr(4).gap(6).items_center().rounded(7)
       .text_size(12).font_semibold().text_color(t.muted)
+      .when(!g, (el) => el.hover((s) => s.bg(t.hover))
+        .on_hover((over, cx) => { this.hotPlace = over ? p.key : this.hotPlace === p.key ? null : this.hotPlace; cx.notify(); }))
       .child(svg(`mods/workspace-chrome/${g ? "git-branch" : "folder"}.svg`).size(11).flex_none().text_color(t.dim))
       .child(div().flex_shrink(1).min_w(0).truncate().child(g ? g.branch ?? "detached" : short(p.folder)))
       .when(Boolean(g?.linked), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child("worktree")))
       .child(div().flex_1())
       .when(g?.ahead > 0, (el) => el.child(div().flex_none().text_size(11.5).font_bold().text_color(t.done).child(`\u2191${g.ahead}`)))
-      .when(g?.behind > 0, (el) => el.child(div().flex_none().text_size(11.5).font_bold().text_color(t.blocked).child(`\u2193${g.behind}`)));
+      .when(g?.behind > 0, (el) => el.child(div().flex_none().text_size(11.5).font_bold().text_color(t.blocked).child(`\u2193${g.behind}`)))
+      // A folder outside a repo: a new tab there, in the space its tabs are in.
+      .when(!g && hot && Boolean(w), (el) => el.child(this.iconButton(`add-${p.key}`, "mods/sleeve-chrome/icons/plus.svg", 13, "New tab here", t,
+        () => run("tab.new", { space: w.id, folder: p.folder }))));
   }
 
   // A group's head: a repo by a tile with its initial in a color of its own, or the
@@ -384,12 +391,9 @@ export default class Work extends View {
 
   group(x, t) {
     const from = x.places.flatMap((p) => p.rows).find((r) => r.g && !r.g.linked) ?? x.places[0]?.rows[0];
-    // A repo: a new worktree of it. Elsewhere: a new space, on that machine.
-    const add = x.repo
-      ? from && this.iconButton(`add-${x.key}`, "mods/sleeve-chrome/icons/plus.svg", 14, "New worktree", t,
-        () => openOverlay({ mod: "sleeve-worktree", kind: "dialog", frame: "none", width: 460, height: 158, props: { space: from.w.id, action: "new" } }))
-      : this.iconButton(`add-${x.key}`, "mods/sleeve-chrome/icons/plus.svg", 14, "New space", t,
-        () => run("space.new", { machine: x.machine ?? "" }));
+    // A repo: a new worktree of it. Other has its + on each folder instead.
+    const add = x.repo && from ? this.iconButton(`add-${x.key}`, "mods/sleeve-chrome/icons/plus.svg", 14, "New worktree", t,
+      () => openOverlay({ mod: "sleeve-worktree", kind: "dialog", frame: "none", width: 460, height: 158, props: { space: from.w.id, action: "new" } })) : null;
     const head = this.heading(x.key, x.repo ? x.name : "Other", t, { repo: x.repo, add, machine: x.machine });
     if (this.folded.has(x.key)) return [head];
     const items = x.places.flatMap((p) => [
