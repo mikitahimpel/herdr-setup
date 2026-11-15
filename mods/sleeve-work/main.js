@@ -188,7 +188,6 @@ export default class Work extends View {
         rows.push({ w, c, g, name: tabName(w, c, ps), program: tabProgram(c, ps), folder, subs });
       }
     }
-    const needs = rows.filter((r) => r.c.status === "blocked" || r.subs.some((s) => subState(s.k) === "blocked"));
     const names = [...new Set([...rows.map((r) => r.w.machine).filter(Boolean), ...this.machines.map((m) => m.name)])].sort();
     const parts = [null, ...names].map((machine) => {
       // Repos, then folders outside any repo; in each, its places (a checkout, a
@@ -206,7 +205,7 @@ export default class Work extends View {
       const list = [...groups.values()].map((x) => ({ ...x, places: [...x.places.values()] }));
       return { machine, groups: [...list.filter((x) => x.repo), ...list.filter((x) => !x.repo)].map((x) => ({ ...x, machine })) };
     });
-    return { parts: names.length ? parts : parts.slice(0, 1), needs };
+    return { parts: names.length ? parts : parts.slice(0, 1) };
   }
 
   goTab(w, c) {
@@ -291,8 +290,8 @@ export default class Work extends View {
       .child(svg(`mods/workspace-chrome/chevron-${open ? "down" : "right"}.svg`).size(9).text_color(t.dim));
   }
 
-  // A tab, one line: its state, its name, its helpers. `id`: unique in the list (a tab
-  // can show twice: in Needs you and in its place). `note`: dim words after the name.
+  // A tab, one line: its state, its name, its helpers. `id`: unique in the list.
+  // `note`: dim words after the name.
   tabRow(r, t, id, indent, note = "") {
     const { w, c } = r;
     const on = w.active && c.active;
@@ -464,10 +463,6 @@ export default class Work extends View {
       return v_flex().id("work-rail").size_full().bg(t.chrome).pt(8).gap(4).overflow_y_scroll().children(this.rail(model, t));
     }
     const items = [];
-    if (model.needs.length) {
-      items.push(this.heading("needs", "Needs you", t, { repo: true }));
-      if (!this.folded.has("needs")) items.push(...model.needs.map((r) => this.tabRow(r, t, `need-${r.c.id}`, 0, r.g ? `${r.g.name} · ${r.g.branch ?? ""}` : short(r.folder))));
-    }
     for (const p of model.parts) for (const x of p.groups) items.push(...this.group(x, t));
     return v_flex().id("work").size_full().bg(t.chrome).font_semibold()
       .track_focus(this.handle)
