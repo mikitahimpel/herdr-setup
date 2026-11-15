@@ -80,8 +80,13 @@ function tabName(w, c, ps) {
     || title.toLowerCase() === (program?.name ?? "").toLowerCase()
     || (program?.key && title.toLowerCase().startsWith(`${program.key} `))
     || /^[\w.-]+ --?\w/.test(title) // a command line: "claude --model opus"
-    || /^~?\//.test(title);
-  return plain ? w.name : title;
+    || /^(~|\/)/.test(title);
+  if (!plain) return title;
+  // An agent with no title yet: its space's name. A shell: what runs in front of it
+  // (its title, a command), else just "Terminal"; its folder is already above it.
+  if (program?.agent) return w.name;
+  if (title && !/^(~|\/)/.test(title) && !/^[^\s@]+@[^\s:]+/.test(pane?.title ?? "")) return title;
+  return program && !program.shell && program.name ? program.name : "Terminal";
 }
 
 // A worktree made by Herdr, when git can't be asked (its machine away): its path,
