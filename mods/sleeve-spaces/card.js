@@ -97,7 +97,7 @@ export class Card {
       // A long title wraps: the icon and the state stay with its first line.
       .child(h_flex().px(14).pt(12).pb(facts.length ? 10 : 12).gap(10).items_start()
         .child(div().h(22).flex_none().flex().items_center().child(this.icon(p, t)))
-        .child(div().flex_1().min_w(0).min_h(22).flex().items_center().text_size(13.5).font_bold().text_color(t.foreground).child(p.title ?? ""))
+        .child(div().flex_1().min_w(0).min_h(22).flex().items_center().text_size(13.5).font_bold().text_color(t.foreground).child(div().flex_1().min_w(0).child(p.title ?? "")))
         .when(Boolean(p.status), (el) => el.child(this.status(p, t))))
       .when(facts.length > 0, (el) => el
         .child(div().mx(14).h(1).bg(t.border))
