@@ -17,7 +17,7 @@
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, Popup } from "gpui-base";
 import { spaces, machines, panes, run, openOverlay, hc, theme, shared, layout, nextCommand, home, terminals } from "herdr";
-import { askRename } from "./ask.js";
+import { askRename, askClose } from "./ask.js";
 import { GitFacts, lead } from "./git.js";
 import { Card } from "./card.js";
 import { HoverCard } from "./hover.js";
@@ -68,10 +68,12 @@ function tabProgram(c, ps) {
 // A tab's name: the one given; else what its agent set as its title, unless that's only
 // the program's name or the command it was started with; else its space's name.
 function tabName(w, c, ps) {
-  // A name that is a command line ("claude --model opus", given by whatever started it) says nothing.
-  if (c.named && !/^[\w.-]+ --?\w/.test(c.name)) return c.name;
   const pane = lead(c.id, ps);
   const program = pane?.program;
+  // A name that is a command line ("claude --model opus") or the program's own name
+  // ("Claude Code", given by whatever started it) says nothing: the title says more.
+  const given = c.named && !/^[\w.-]+ --?\w/.test(c.name) && c.name.toLowerCase() !== (program?.name ?? "").toLowerCase();
+  if (given) return c.name;
   let title = (pane?.title ?? "").replace(/^[^\p{L}\p{N}~/.]+/u, "").trim();
   if (!program?.agent && /^[^\s@]+@[^\s:]+/.test(title)) title = "";
   const plain = !title || !/[\p{L}\p{N}]/u.test(title)
@@ -232,6 +234,19 @@ export default class Work extends View {
 
   // Its state, at the row's end: a spinner at work, red waiting for the person, green
   // finished; nothing idle.
+  // A small icon button on a row or head; its own hover stands out on a hovered row.
+  iconButton(id, icon, size, tip, t, action) {
+    return div().id(id).size(20).flex_none().flex().items_center().justify_center().rounded(6).text_color(t.muted)
+      .hover((s) => s.bg(`${t.foreground.slice(0, 7)}1f`).text_color(t.foreground)).tooltip(tip)
+      .on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); action(); })
+      .child(svg(icon).size(size));
+  }
+
+  // On a hovered tab, in place of its state: close it.
+  closer(c, t) {
+    return this.iconButton(`close-${c.id}`, "mods/workspace-chrome/x.svg", 10, "Close tab", t, () => askClose("tab", c.id));
+  }
+
   state(st, t) {
     const slot = div().size(14).flex_none().flex().items_center().justify_center();
     if (st === "working") return slot.child(svg("mods/workspace-chrome/spinner.svg").size(11).text_color(t.working).spin(1500));
@@ -273,8 +288,11 @@ export default class Work extends View {
       .when(on, (el) => el.bg(t.selected))
       .when(!on, (el) => el.hover((s) => s.bg(t.hover)))
       .on_hover((over, cx) => {
+        if (over) this.hotRow = id;
+        else if (this.hotRow === id) this.hotRow = null;
         if (over) this.card.over(id, () => this.tabCard(r), cx);
         else this.card.out(id, cx);
+        cx.notify();
       })
       .on_mouse_down("left", (e, cx) => {
         this.card.close(cx);
@@ -290,7 +308,7 @@ export default class Work extends View {
       .when(Boolean(note), (el) => el.child(div().flex_shrink(2).min_w(0).truncate().text_size(11.5).text_color(t.dim).child(note)))
       .child(div().flex_1())
       .when(r.subs.length > 0, (el) => el.child(this.helpers(r, t)))
-      .children([this.state(c.status, t)].filter(Boolean))
+      .children([this.hotRow === id ? this.closer(c, t) : this.state(c.status, t)].filter(Boolean))
       .child(this.ring(id, t))
       .child(this.cardAt(id));
   }
@@ -356,13 +374,12 @@ export default class Work extends View {
 
   group(x, t) {
     const from = x.places.flatMap((p) => p.rows).find((r) => r.g && !r.g.linked) ?? x.places[0]?.rows[0];
-    const add = x.repo && from ? div().id(`add-${x.key}`).size(22).flex_none().flex().items_center().justify_center().rounded(6).text_color(t.muted)
-      .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("New worktree")
-      .on_mouse_down("left", (_e, cx) => {
-        cx.stop_propagation();
-        openOverlay({ mod: "sleeve-worktree", kind: "dialog", frame: "none", width: 460, height: 158, props: { space: from.w.id, action: "new" } });
-      })
-      .child(svg("mods/sleeve-chrome/icons/plus.svg").size(14)) : null;
+    // A repo: a new worktree of it. Elsewhere: a new space, on that machine.
+    const add = x.repo
+      ? from && this.iconButton(`add-${x.key}`, "mods/sleeve-chrome/icons/plus.svg", 14, "New worktree", t,
+        () => openOverlay({ mod: "sleeve-worktree", kind: "dialog", frame: "none", width: 460, height: 158, props: { space: from.w.id, action: "new" } }))
+      : this.iconButton(`add-${x.key}`, "mods/sleeve-chrome/icons/plus.svg", 14, "New space", t,
+        () => run("space.new", { machine: x.machine ?? "" }));
     const head = this.heading(x.key, x.repo ? x.name : "Other", t, { repo: x.repo, add, machine: x.machine });
     if (this.folded.has(x.key)) return [head];
     const items = x.places.flatMap((p) => [
