@@ -86,17 +86,9 @@ function tabName(c, pane, program) {
   return (/[\p{L}\p{N}]/u.test(title) && title) || program?.name || "Terminal";
 }
 
-// A tab's program. A tab attached to the herdr TUI server runs `herdr terminal attach`,
-// which the app sees as a plain shell; sleeve-agents publishes which agent is really
-// there (shared "tui.tabs"), drawn with the same mark as a native one.
+// A tab's program: what its lead pane runs.
 function tabProgram(c, ps) {
-  const pane = lead(c.id, ps);
-  if (pane?.program?.agent) return pane.program;
-  const own = (shared("tui.tabs") ?? {})[c.id];
-  if (!own) return pane?.program ?? null;
-  const key = own.match(/app-(\w+)\.svg$/)?.[1];
-  const native = key && ps.find((p) => p.program?.agent && p.program.key?.startsWith(key))?.program;
-  return native ?? { key, name: key === "claude" ? "Claude Code" : key, icon: own, tint: false, agent: true };
+  return lead(c.id, ps)?.program ?? null;
 }
 
 export default class Spaces extends View {
@@ -195,15 +187,6 @@ export default class Spaces extends View {
     openOverlay({ mod: "sleeve-menu", kind: "popup", frame: "none", width: 240, height: 260, props: { tab: "space", target: { id: w.id }, git } });
   }
 
-  // TUI sessions with no space yet, shaped as rows; they sit in the tree by machine and repo.
-  sessions() {
-    return (shared("tui.places") ?? []).map((p) => ({
-      i: -1,
-      w: { ...p, tui: true, tabs: [], active: false },
-      g: p.repo ? { name: p.repo.name, branch: "", ahead: 0, behind: 0, repo: JSON.stringify([p.machine, p.repo.key]), linked: p.repo.linked } : null,
-    }));
-  }
-
   // The spaces with their git, in order. Spaces made while this runs wait (at most a
   // moment) for their git, so a worktree appears in its repo instead of jumping there.
   rows() {
@@ -219,7 +202,7 @@ export default class Spaces extends View {
       .flatMap((k) => [{ k, depth }, ...kids(k.address, depth + 1)]);
     const subs = (w) => Object.fromEntries((w.tabs ?? []).map((c) => [c.id, ps.filter((p) => p.tab === c.id && p.terminal).flatMap((p) => kids(p.terminal, 0))]));
     const list = sp.map((w, i) => ({ w, i, g: this.git.of(w, ps) ?? null, tabG: tabG(w), subs: subs(w) })).filter((r) => this.shown.has(r.w.id));
-    return [...list, ...this.sessions()];
+    return list;
   }
 
   // The tree, under a header per machine once one isn't this computer.
@@ -429,7 +412,7 @@ export default class Spaces extends View {
     const key = `repo:${n.id}`;
     const open = !this.spaceFolds.has(key);
     const hot = this.hotRepo === n.id;
-    const from = n.children.find((c) => !c.w.tui && !c.g?.linked) ?? n.children.find((c) => !c.w.tui);
+    const from = n.children.find((c) => !c.g?.linked) ?? n.children[0];
     const head = h_flex().id(`repo-${n.id}`).relative().pl(8).pr(4).h(28).flex_none().gap(9).items_center().rounded(8)
       .text_size(13).font_bold().text_color(hot ? t.foreground : t.muted).cursor_pointer()
       .hover((s) => s.bg(t.hover))
@@ -471,7 +454,6 @@ export default class Spaces extends View {
   }
 
   goSpace(w, single) {
-    if (w.tui) return setShared("tui.open", w.address);
     if (!w.active) run("space.select", { id: w.id });
     if (single && !single.active) run("tab.select", { id: single.id });
   }
@@ -649,7 +631,6 @@ export default class Spaces extends View {
 
   spaceCard(w, g, single) {
     if (single) return { ...this.tabCard(w, single), title: w.name };
-    if (w.tui) return { title: w.name, icon: { program: this.program(w) }, git: g, folder: g?.top ?? w.folder ?? null, machine: w.machine };
     const shown = w.tabs.find((c) => c.active);
     return {
       title: w.name,
@@ -679,9 +660,8 @@ export default class Spaces extends View {
   }
 
   // A space's program: the agent in its shown tab, else any of its agents, else what
-  // its shown tab runs. A TUI session or a tab attached to one brings its own icon.
+  // its shown tab runs.
   program(w) {
-    if (w.tui) return w.icon ? { icon: w.icon, tint: false, agent: true } : null;
     const shownTab = w.tabs.find((c) => c.active) ?? w.tabs[0];
     const all = [shownTab, ...w.tabs].filter(Boolean).map((c) => tabProgram(c, this.ps));
     return all.find((p) => p?.agent) ?? all[0] ?? null;
@@ -725,7 +705,7 @@ export default class Spaces extends View {
     // With its tabs listed, the shown tab carries the highlight.
     const on = w.active && !open;
     const hot = single && this.hotTab === single.id;
-    const program = w.tui ? this.program(w) : single ? tabProgram(single, this.ps) : null;
+    const program = single ? tabProgram(single, this.ps) : null;
     const slot = parent
       ? this.chevron(w.id, open, t)
       : div().size(16).flex_none().flex().items_center().justify_center()
@@ -762,7 +742,6 @@ export default class Spaces extends View {
       })
       .on_mouse_down("left", (e, cx) => {
         this.card.close(cx);
-        if (w.tui) return setShared("tui.open", w.address);
         if (e.click_count === 2 && single) return askRename("tab", single.id);
         this.pressed = i;
         this.over = i;
@@ -784,7 +763,7 @@ export default class Spaces extends View {
         if (from !== null && over === i && from !== i) run("space.move", { id: spaces()[from].id, index: i + 1 });
         cx.notify();
       })
-      .on_mouse_down("right", () => { if (!w.tui) this.menu(w); })
+      .on_mouse_down("right", () => this.menu(w))
       .child(slot)
       // Beside a branch the name keeps its width (fits() made room); alone it truncates.
       .child(line ? div().flex_none().child(name) : div().flex_shrink(1).min_w(0).truncate().child(name))
@@ -811,11 +790,8 @@ export default class Spaces extends View {
       .rounded_full()
       .when(w.active, (el) => el.bg(t.selected))
       .when(!w.active, (el) => el.hover((s) => s.bg(t.hover)))
-      .on_mouse_down("left", () => {
-        if (w.tui) setShared("tui.open", w.address);
-        else run("space.select", { id: w.id });
-      })
-      .on_mouse_down("right", () => { if (!w.tui) this.menu(w); })
+      .on_mouse_down("left", () => run("space.select", { id: w.id }))
+      .on_mouse_down("right", () => this.menu(w))
       .child(div().relative().size(22).flex_none()
         .child(this.icon(w, g, 22, w.active ? t.selected : t.chrome, t, "left"))
         .when(Boolean(live), (el) => el.child(div().absolute().right(-2).bottom(-2).size(9).rounded_full().border_2().border_color(t.chrome).bg(t[w.status]))));

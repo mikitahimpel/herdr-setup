@@ -5,7 +5,6 @@ import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { PreviewHover, HEIGHT } from "./hover.js";
 import { agents, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
-import { TuiAgents } from "./tui.js";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -74,24 +73,10 @@ export default class Agents extends View {
   init(_props, cx) {
     if (props()?.sortMenu) return;
     this.folded = new Set();
-    this.tui = new TuiAgents();
-    this.tui.start(cx);
     // Each agent's last state and when it changed (ms), kept across restarts.
     this.changed = JSON.parse(localStorage.getItem("changed") ?? "{}");
     this.pins = JSON.parse(localStorage.getItem("pins") ?? "[]");
     cx.timer.every(30000, (cx) => cx.notify());
-    // The sidebar's TUI places and attached tabs, and its clicks on them, work while
-    // this list is hidden too: a hidden block isn't drawn, so render can't be relied on.
-    cx.timer.every(400, (cx) => this.openAsked(cx));
-    cx.timer.every(3000, () => this.publish([...agents(), ...this.tui.agents()]));
-  }
-
-  openAsked(cx) {
-    const asked = shared("tui.open");
-    if (!asked) return;
-    setShared("tui.open", null);
-    const a = this.tui.agents().find((x) => x.address === asked);
-    if (a) this.tui.open(a, cx);
   }
 
   // Stamps agents whose state changed. Done and idle count as one: looking at a
@@ -122,7 +107,7 @@ export default class Agents extends View {
     const machine = (addr) => (addr.includes("/") ? addr.split("/")[0] : "");
     const heard = new Set(all.map((k) => machine(k.address)));
     const live = new Set(all.filter((k) => k.state === "live").map((k) => k.address));
-    const kept = this.pins.filter((p) => p.startsWith("tui:") || !heard.has(machine(p)) || live.has(p));
+    const kept = this.pins.filter((p) => !heard.has(machine(p)) || live.has(p));
     if (kept.length !== this.pins.length) this.setPins(kept);
   }
 
@@ -174,42 +159,6 @@ export default class Agents extends View {
         .child(svg(`mods/sleeve-chrome/icons/${s.icon}.svg`).size(15).flex_none())
         .child(div().flex_1().child(s.label))
         .when(s.id === on, (el) => el.child(svg("mods/workspace-chrome/check.svg").size(14).flex_none()))));
-  }
-
-  // TUI sessions with no space yet, for the spaces tree: one per workspace, by its most
-  // urgent agent. Opening one there comes back through shared "tui.open".
-  publish(list) {
-    const places = new Map(), tabs = {};
-    for (const a of list) {
-      // A tab attached to a TUI agent runs `herdr`; the tree shows the agent instead.
-      if (a.tui && a.tab && !tabs[a.tab]) tabs[a.tab] = a.program.tint ? null : a.program.icon;
-      if (!a.tui || a.tab) continue;
-      const machine = a.tui.source.machine;
-      if (spaces().some((s) => s.name === a.space_name && (s.machine ?? null) === machine)) continue;
-      const best = places.get(a.space);
-      if (best && (RANK[best.status] ?? 0) >= (RANK[a.status] ?? 0)) continue;
-      const w = a.tui.worktree;
-      places.set(a.space, {
-        id: a.space,
-        address: a.address,
-        name: a.space_name || a.title || a.program.name,
-        machine,
-        status: a.status,
-        icon: a.program.tint ? null : a.program.icon,
-        command: ["herdr", ...a.tui.source.prefix, "agent", "read", a.tui.pane, "--source", "visible"],
-        repo: w ? { name: w.repo_name, key: w.repo_key, linked: w.is_linked_worktree } : null,
-      });
-    }
-    const next = [...places.values()], text = JSON.stringify(next);
-    if (text !== this.published) {
-      this.published = text;
-      setShared("tui.places", next);
-    }
-    const attached = JSON.stringify(tabs);
-    if (attached !== this.attached) {
-      this.attached = attached;
-      setShared("tui.tabs", tabs);
-    }
   }
 
   previewAgent() {}
@@ -277,11 +226,7 @@ export default class Agents extends View {
     if (props()?.sortMenu) return this.sortMenu(t);
     const collapsed = narrow();
     const sort = sortOf();
-    let list = [...agents(), ...this.tui.agents()];
-    this.publish(list);
-    // Headless: a floating block that only keeps the TUI agents (their places, attached
-    // tabs' icons and alerts) running for the spaces tree; it draws nothing.
-    if (props()?.headless) return div();
+    let list = agents();
     this.listed = new Map(list.map((a) => [a.address, a.status]));
     const all = terminals();
     const shown = focused()?.agent;
@@ -296,7 +241,7 @@ export default class Agents extends View {
     const pinned = this.pins.map((p) => list.find((a) => a.address === p)).filter(Boolean);
     const rest = list.filter((a) => !this.pins.includes(a.address));
     list = [...pinned, ...rest];
-    setAgentOrder(list.filter((a) => !a.tui).map((a) => a.address));
+    setAgentOrder(list.map((a) => a.address));
 
     const withKids = (a, i) => {
       const subs = collapsed ? [] : this.tree(all, a.address);
@@ -351,8 +296,8 @@ export default class Agents extends View {
       const pic = icon(a.program, 20, t.foreground);
       const more = detail.get(a.address);
       // An agent on another machine (`vps/t7`) says which.
-      const machine = a.tui ? a.tui.source.machine : a.address.includes("/") ? a.address.split("/")[0] : null;
-      const go = (_e, cx) => (a.tui ? this.tui.open(a, cx) : run("pane.focus", { pane: a.pane }));
+      const machine = a.address.includes("/") ? a.address.split("/")[0] : null;
+      const go = () => run("pane.focus", { pane: a.pane });
       if (collapsed) {
         return h_flex()
           .id(`ag-${a.address}`)

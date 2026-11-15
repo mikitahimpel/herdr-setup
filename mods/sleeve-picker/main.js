@@ -5,7 +5,7 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { agents, spaces, panes, terminals, run, hc, theme, props, closeOverlay, shared } from "herdr";
+import { agents, spaces, panes, terminals, run, hc, theme, props, closeOverlay } from "herdr";
 
 const ROW_H = 34, HEAD_H = 30, QUIET_H = 32, RULE_H = 9, MAX_LIST = 420;
 
@@ -85,9 +85,7 @@ export default class Picker extends View {
   tile(r, on, t) {
     const inTab = panes().filter((p) => p.tab === r.ctx.id);
     const pane = inTab.find((p) => p.program?.agent) ?? inTab[0];
-    // A tab attached to a herdr TUI agent runs `herdr`; sleeve-agents says which agent.
-    const own = !pane?.program?.agent && (shared("tui.tabs") ?? {})[r.ctx.id];
-    const program = own ? { icon: own, tint: false } : pane?.program, tint = t.muted;
+    const program = pane?.program, tint = t.muted;
     const art = !program?.icon || program.shell || program.key === "shell" ? image("mods/sleeve-spaces/icons/app-terminal.svg").size(18)
       : program.tint ? svg(program.icon).size(16).text_color(tint) : image(program.icon).size(20);
     return div().size(20).flex_none().flex().items_center().justify_center().child(art);

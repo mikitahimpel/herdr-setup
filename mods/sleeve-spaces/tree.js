@@ -11,7 +11,7 @@
 //
 // Pure (no herdr imports) so it runs under node: see tree.test.mjs.
 
-// rows: [{ w, i, g, tabG }] in space order. w: a space (or a TUI session, w.tui), i: its
+// rows: [{ w, i, g, tabG }] in space order. w: a space, i: its
 // index, g: its git facts ({ repo, name, branch, linked, ... }) or null outside a repo,
 // tabG: tab id -> that tab's git facts (missing: not known yet, taken as the space's).
 // subs: tab id -> [{ k: terminal, depth }], its pane-less sub-agents depth first.
@@ -24,7 +24,7 @@ export function buildTree(rows, remote) {
 
 // The tabs a space lists: settled ones are put away, unless shown.
 export function tabsOf(w) {
-  return w.tui ? [] : (w.tabs ?? []).filter((c) => !c.settled || c.active);
+  return (w.tabs ?? []).filter((c) => !c.settled || c.active);
 }
 
 function forest(rows) {

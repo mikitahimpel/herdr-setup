@@ -157,17 +157,6 @@
   "terminal_menu": "sleeve-menu",
   "floating": [
     {
-      "id": "agents",
-      "content": {
-        "mod": "sleeve-agents",
-        "props": {
-          "headless": true
-        }
-      },
-      "edge": "bottom",
-      "align": "end"
-    },
-    {
       "id": "resume",
       "content": {
         "mod": "sleeve-resume"

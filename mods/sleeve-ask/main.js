@@ -50,7 +50,7 @@ async function git(cwd, args, on) {
 export default class SleeveAsk extends View {
   init(_props, cx) {
     const active = spaces().find((s) => s.active);
-    this.places = spaces().filter((s) => !s.tui).map((s) => ({ id: s.id, name: s.name, folder: place(s), machine: s.machine ?? null }));
+    this.places = spaces().map((s) => ({ id: s.id, name: s.name, folder: place(s), machine: s.machine ?? null }));
     const asked = props()?.space;
     this.fixed = Boolean(asked);
     this.at = Math.max(0, this.places.findIndex((c) => c.id === (asked ?? active?.id)));
