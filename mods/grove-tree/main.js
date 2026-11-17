@@ -106,7 +106,11 @@ export default class Grove extends View {
         ks.sort((a, b) => Number(!a.k.program?.agent) - Number(!b.k.program?.agent));
         // Agents in the tab's other panes (a split), beside its lead.
         const peers = ps.filter((p) => p.tab === c.id && p.terminal && p.program?.agent && p.pane !== pane?.pane);
-        return { c, w, pane, name: tabName(c, pane), tag, kids: ks, peers, status: c.status, cwd: pane?.cwd };
+        // Herdr's tab status is the most urgent one (blocked > done > working), so a tab whose
+        // other agent finished reads "done" while one still works: ask its panes too.
+        const own = ps.filter((p) => p.tab === c.id && p.terminal && p.program?.agent);
+        const working = c.status === "working" || own.some((p) => p.status === "working");
+        return { c, w, pane, name: tabName(c, pane), tag, kids: ks, peers, status: c.status ?? worst(own.map((p) => p.status)), working, cwd: pane?.cwd };
       });
       // In a git repo every tab goes under its checkout's line (the space's own one for tabs
       // without a tag), in the order they first appear.
@@ -229,7 +233,7 @@ export default class Grove extends View {
         .child(String(x.kids.length))))
       .child(div().w(END).h(END).flex_none().flex().items_center().justify_center()
         .child(hot ? this.mini(t, `close-${c.id}`, "mods/workspace-chrome/x.svg", "Close tab", () => askClose("tab", c.id))
-          : x.status === "working" ? this.spin(t) : div()))];
+          : x.working ? this.spin(t) : div()))];
     if (open) for (const { k, depth } of x.kids) rows.push(this.sub(t, x, k, depth));
     return rows;
   }
