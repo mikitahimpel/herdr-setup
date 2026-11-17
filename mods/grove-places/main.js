@@ -25,10 +25,12 @@ export default class Places extends View {
   init(_p, cx) {
     this.handle = cx.focus_handle();
     this.agent = props()?.agent ?? "claude";
+    // With props.space: only where that space's repo is checked out, and a tab opens in it.
+    this.scope = spaces().find((s) => s.id === props()?.space) ?? null;
     this.text = "";
     this.at = 0;
     this.places = null;
-    const what = this.agent === "claude" ? "New session" : `New ${AGENTS[this.agent].name} session`;
+    const what = this.scope ? `New tab in ${this.scope.name}` : this.agent === "claude" ? "New session" : `New ${AGENTS[this.agent].name} session`;
     this.input = InputState.new({ value: "", placeholder: `${what} in…  (type to search every worktree)` });
     this.input.on("change", (_e, cx) => { this.text = this.input.value(); this.at = 0; cx.notify(); });
     this.input.focus();
@@ -51,11 +53,11 @@ export default class Places extends View {
   async find(emit) {
     const h = appHome().replace(/\/\.config\/herdr-app\/?$/, "");
     const ps = panes();
-    const active = spaces().find((s) => s.active);
+    const active = this.scope ?? spaces().find((s) => s.active);
     const hereTabs = new Set((active?.tabs ?? []).map((c) => c.id));
     const hereCwd = ps.find((p) => hereTabs.has(p.tab) && p.cwd)?.cwd ?? active?.folder;
     const hereOn = active?.machine ?? null;
-    const ons = [null, ...new Set(spaces().map((s) => s.machine).filter(Boolean))];
+    const ons = this.scope ? [this.scope.machine ?? null] : [null, ...new Set(spaces().map((s) => s.machine).filter(Boolean))];
     const away = new Set(machines().filter((m) => m.layout === "unavailable").map((m) => m.name));
     const per = ons.map(() => null);
     const show = () => {
@@ -71,13 +73,16 @@ export default class Places extends View {
       const ids = new Set(spaces().filter((s) => (s.machine ?? null) === on).flatMap((s) => (s.tabs ?? []).map((c) => c.id)));
       const cwds = [...new Set(ps.filter((p) => ids.has(p.tab) && p.cwd).map((p) => p.cwd))];
       const inside = (p, dir) => p === dir || p.startsWith(dir + "/");
-      const repos = new Set(), folders = new Set();
+      const repos = new Set(), folders = new Set(), repoOf = new Map();
       await Promise.all(cwds.map(async (cwd) => {
         const common = await git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"], on);
-        if (common) repos.add(common.replace(/\/\.git\/?$/, "")); else folders.add(cwd);
+        if (common) { const main = common.replace(/\/\.git\/?$/, ""); repos.add(main); repoOf.set(cwd, main); } else folders.add(cwd);
       }));
+      // The scoped space's repos: where its terminals are.
+      const scopeTabs = new Set((this.scope?.tabs ?? []).map((c) => c.id));
+      const scoped = new Set(ps.filter((p) => scopeTabs.has(p.tab) && repoOf.has(p.cwd)).map((p) => repoOf.get(p.cwd)));
       const mine = [];
-      for (const main of [...repos].sort()) {
+      for (const main of [...repos].sort().filter((m) => !this.scope || scoped.has(m))) {
         const list = (await git(main, ["worktree", "list", "--porcelain"], on)) ?? "";
         for (const block of list.split(/\n\n+/)) {
           const lines = block.split("\n");
@@ -88,8 +93,8 @@ export default class Places extends View {
           mine.push({ name: base(main), sub: branch, wt: path !== main, path, machine: on, open: path === main || used });
         }
       }
-      const fixed = on ? ["~"] : [`${h}/Developer`, h];
-      for (const f of [...folders, ...fixed]) {
+      const fixed = this.scope ? (scoped.size ? [] : [this.scope.folder || (on ? "~" : h)]) : on ? ["~"] : [`${h}/Developer`, h];
+      for (const f of [...(this.scope ? [] : folders), ...fixed]) {
         if (mine.some((p) => p.path === f)) continue;
         mine.push({ name: f === h || f === "~" ? "Home" : base(f), sub: on ? `folder · ${on}` : "folder", folder: true, path: f, machine: on, open: true });
       }
@@ -108,7 +113,8 @@ export default class Places extends View {
     if (!p || p.off) return;
     closeOverlay(props().overlay);
     const argv = terminal ? null : AGENTS[this.agent].argv;
-    run("space.new", { folder: p.path === "~" ? "" : p.path, ...(p.machine ? { machine: p.machine } : {}), ...(argv ? { argv } : {}), focus: true });
+    if (this.scope) return run("tab.new", { space: this.scope.id, folder: p.path === "~" ? "" : p.path, ...(argv ? { argv } : {}), focus: true });
+    run("space.new", { folder: p.path === "~" ? "" : p.path, ...(p.machine ? { machine: p.machine } : {}), ...(!p.folder ? { name: p.name } : {}), ...(argv ? { argv } : {}), focus: true });
   }
 
   key(e, cx) {
@@ -127,7 +133,7 @@ export default class Places extends View {
     if (this.at >= list.length) this.at = Math.max(0, list.length - 1);
     const a = AGENTS[this.agent];
     return v_flex().id("grove-places").track_focus(this.handle).on_key_down((e, cx) => this.key(e, cx))
-      .w_full().max_h_full().bg(t.popover).rounded(14).border_1().border_color(t.input).shadow_2xl().overflow_hidden()
+      .w_full().h(this.scope ? 300 : 440).max_h_full().bg(t.popover).rounded(14).border_1().border_color(t.input).shadow_2xl().overflow_hidden()
       .child(h_flex().h(42).flex_none().px(14).gap(10).items_center().border_b(1).border_color(t.border)
         .child(svg("mods/workspace-chrome/plus.svg").size(14).flex_none().text_color(t.muted))
         .child(Input.new(this.input).flex_1().h_full().text_size(14).text_color(t.foreground)))
