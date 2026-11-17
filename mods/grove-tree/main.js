@@ -12,11 +12,11 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import * as H from "herdr";
 import { spaces, panes, terminals, machines, run, theme, appHome, openOverlay, setAgentOrder } from "herdr";
 import { GitFacts, lead } from "./git.js";
 import { tile } from "./tile.js";
 import { fade } from "./fade.js";
+import { askClose, closeDialog, renameDialog } from "./ask.js";
 
 const TERMINAL = "mods/sleeve-spaces/icons/app-terminal.svg";
 const CLAUDE = "mods/sleeve-spaces/icons/app-claude.svg";
@@ -36,13 +36,8 @@ const NEST = 14, WT = 26, PEER = 16;
 
 const base = (path) => (path ?? "").replace(/\/+$/, "").split("/").pop();
 const worst = (list) => list.reduce((a, s) => ((RANK[s] ?? 0) > (RANK[a] ?? 0) ? s : a), null);
-// This machine's home. An earlier build of this mod had a top-level `home` of its own, and
-// Herdr's loader put it over the shared `home` export until the app restarts; put the real
-// one back (it is appHome() without Herdr's folder) when that is what's there.
+// This machine's home: appHome() without Herdr's folder.
 const userHome = () => appHome().replace(/\/\.config\/herdr-app\/?$/, "");
-function repairHome() {
-  try { if (/w\.id/.test(String(H.home))) H.home = userHome; } catch {}
-}
 
 // Home as ~, here and on other machines (/home/<user>, /Users/<user>).
 const tilde = (p) => {
@@ -79,7 +74,6 @@ const menu = (items) => openOverlay({
 
 export default class Grove extends View {
   init(_props, cx) {
-    repairHome();
     this.git = new GitFacts();
     this.hover = null;
     this.open = new Set(); // tabs whose sub-agents are listed
@@ -152,11 +146,14 @@ export default class Grove extends View {
       .child(svg(icon).size(12));
   }
 
+  // New tabs start in the space's folder (the repo's main checkout); without one, Herdr
+  // would use the focused terminal's folder, which may be any worktree.
   tabMenu(w) {
+    const at = w.folder ? { folder: w.folder } : {};
     return [
-      { label: "Claude tab", program: { icon: CLAUDE, tint: false }, key: "⌘T", run: { name: "tab.new", args: { space: w.id, argv: ["claude"], focus: true } } },
-      { label: "Codex tab", program: { icon: CODEX, tint: true }, run: { name: "tab.new", args: { space: w.id, argv: ["codex"], focus: true } } },
-      { label: "Terminal tab", program: { shell: true }, key: "⌥⌘T", run: { name: "tab.new", args: { space: w.id, focus: true } } },
+      { label: "Claude tab", program: { icon: CLAUDE, tint: false }, run: { name: "tab.new", args: { space: w.id, ...at, argv: ["claude"], focus: true } } },
+      { label: "Codex tab", program: { icon: CODEX, tint: true }, run: { name: "tab.new", args: { space: w.id, ...at, argv: ["codex"], focus: true } } },
+      { label: "Terminal tab", program: { shell: true }, run: { name: "tab.new", args: { space: w.id, ...at, focus: true } } },
     ];
   }
 
@@ -169,8 +166,8 @@ export default class Grove extends View {
     return h_flex().id(key).h(HEAD).flex_none().pl(INSET).pr(7).gap(6).items_center()
       .on_hover((h, cx) => this.hovered(key, cx, h))
       .on_mouse_down("right", () => menu([...this.tabMenu(s.w), "-",
-        { label: "Rename session…", run: { name: "space.rename", args: { id: s.w.id } } },
-        { label: "Close session", danger: true, run: { name: "space.close", args: { id: s.w.id } } }]))
+        { label: "Rename session…", open: renameDialog("space", s.w.id) },
+        { label: "Close session…", danger: true, open: closeDialog("space", s.w.id) }]))
       .child(div().flex_none().max_w(150).truncate().text_size(12).font_semibold().text_color(HEADER).child(String(s.w.name ?? "")))
       .child(h_flex().flex_1().min_w(0).gap(3).items_center().text_color(t.dim)
         .when(s.wt, (el) => el.child(svg(BRANCH).size(10).flex_none()))
@@ -180,8 +177,8 @@ export default class Grove extends View {
         .child(div().size(6).rounded_full().bg(up ? t.done : t.idle))
         .child(s.machine)))
       .when(hot, (el) => el.child(this.mini(t, `add-${s.w.id}`, "mods/workspace-chrome/plus.svg",
-        `New Claude tab in ${s.w.name}   ⌥ terminal · right-click: in main or a worktree`,
-        (e) => run("tab.new", { space: s.w.id, ...(e.modifiers.alt ? {} : { argv: ["claude"] }), focus: true }),
+        `New Claude tab in ${s.w.name}   ⌥ terminal · right-click: a worktree`,
+        (e) => run("tab.new", { space: s.w.id, ...(s.w.folder ? { folder: s.w.folder } : {}), ...(e.modifiers.alt ? {} : { argv: ["claude"] }), focus: true }),
         // Where in this repo: its main checkout or a worktree; the tab opens in this space.
         () => openOverlay({ mod: "grove-places", kind: "popup", frame: "none", width: 400, height: 300, props: { space: s.w.id } }))));
   }
@@ -208,8 +205,8 @@ export default class Grove extends View {
           { label: "Claude on the right", icon: "mods/sleeve-pane/split-right.svg", run: { name: "pane.split", args: { pane: x.pane.pane, direction: "right", argv: ["claude"] } } },
           { label: "Terminal below", icon: "mods/sleeve-pane/split-down.svg", run: { name: "pane.split", args: { pane: x.pane.pane, direction: "down" } } },
           "-"] : []),
-        { label: "Rename tab…", run: { name: "tab.rename", args: { id: c.id } } },
-        { label: "Close tab", danger: true, run: { name: "tab.close", args: { id: c.id } } }]))
+        { label: "Rename tab…", open: renameDialog("tab", c.id) },
+        { label: "Close tab…", danger: true, open: closeDialog("tab", c.id) }]))
       .child(div().relative().size(ICON).flex_none().flex().items_center().justify_center()
         .child(this.icon(x.pane?.program, ICON))
         .when(badge, (el) => el.child(div().absolute().right(-3).bottom(-3).size(8).rounded_full().bg(t[x.status])
@@ -231,7 +228,7 @@ export default class Grove extends View {
         .when(Boolean(kidState) && !open, (el) => el.child(div().size(5).flex_none().rounded_full().bg(t[kidState])))
         .child(String(x.kids.length))))
       .child(div().w(END).h(END).flex_none().flex().items_center().justify_center()
-        .child(hot ? this.mini(t, `close-${c.id}`, "mods/workspace-chrome/x.svg", "Close tab", () => run("tab.close", { id: c.id }))
+        .child(hot ? this.mini(t, `close-${c.id}`, "mods/workspace-chrome/x.svg", "Close tab", () => askClose("tab", c.id))
           : x.status === "working" ? this.spin(t) : div()))];
     if (open) for (const { k, depth } of x.kids) rows.push(this.sub(t, x, k, depth));
     return rows;

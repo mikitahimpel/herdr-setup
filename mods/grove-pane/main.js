@@ -16,7 +16,10 @@ function icon(p, size, color) {
 function folder(cwd) {
   if (!cwd) return "";
   const h = appHome().replace(/\/\.config\/herdr-app\/?$/, "");
-  return cwd === h ? "~" : cwd.startsWith(h + "/") ? "~" + cwd.slice(h.length) : cwd;
+  if (cwd === h) return "~";
+  if (cwd.startsWith(h + "/")) return "~" + cwd.slice(h.length);
+  // Another machine's home too (/home/<user>, /Users/<user>).
+  return cwd.replace(/^\/(?:home|Users)\/[^/]+(?=\/|$)/, "~");
 }
 
 function find(node, id) {

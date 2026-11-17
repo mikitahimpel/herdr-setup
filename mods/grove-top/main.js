@@ -4,8 +4,9 @@
 
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { theme, run, keys, openOverlay, nextCommand, notify, agents } from "herdr";
+import { theme, run, keys, openOverlay, nextCommand, notify, agents, spaces } from "herdr";
 import { muted, toggleMute } from "./mute.js";
+import { askClose, askRename } from "./ask.js";
 
 const GLYPHS = { cmd: "⌘", shift: "⇧", ctrl: "⌃", alt: "⌥" };
 function hint(label, action) {
@@ -29,6 +30,14 @@ export default class GroveTop extends View {
         const c = await nextCommand();
         if (c === "new" || c === "new-terminal") openOverlay(places(c === "new" ? "claude" : "terminal"));
         if (c === "mute") await toggleMute();
+        // A tab in the selected space's folder; Herdr's own default is the focused terminal's.
+        if (c === "new-tab" || c === "new-terminal-tab") {
+          const w = spaces().find((x) => x.active);
+          if (w) run("tab.new", { space: w.id, ...(w.folder ? { folder: w.folder } : {}), ...(c === "new-tab" ? { argv: ["claude"] } : {}), focus: true });
+        }
+        if (c === "close-tab") askClose("tab");
+        if (c === "rename-tab") askRename("tab");
+        if (c === "rename-session") askRename("space");
         // A sample of what Herdr posts for an agent, to look at the toast.
         if (c === "test-toast") {
           const a = agents().find((x) => x.program?.agent) ?? agents()[0];

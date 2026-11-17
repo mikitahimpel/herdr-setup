@@ -13,8 +13,8 @@
   },
   "background": "canvas",
   "terminal_padding": [
-    16,
-    14
+    24,
+    18
   ],
   "terminal_opacity": 0.999,
   "padding": 10,
@@ -165,5 +165,6 @@
       "edge": "top",
       "align": "center"
     }
-  ]
+  ],
+  "terminal_line_height": 1.12
 }

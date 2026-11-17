@@ -114,7 +114,11 @@
   "layout:grove": {
     "cmd-n": "grove-top.new",
     "cmd-alt-n": "grove-top.new-terminal",
-    "cmd-alt-t": "tab.new",
-    "cmd-shift-m": "grove-top.mute"
+    "cmd-alt-t": "grove-top.new-terminal-tab",
+    "cmd-shift-m": "grove-top.mute",
+    "cmd-w": "grove-top.close-tab",
+    "f2": "grove-top.rename-tab",
+    "shift-f2": "grove-top.rename-session",
+    "cmd-t": "grove-top.new-tab"
   }
 }
