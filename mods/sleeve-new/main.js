@@ -47,27 +47,29 @@ export default class NewMenu extends View {
     const t = theme();
     const space = spaces().find(s => s.active);
     const installed = this.agents.filter(a => a.installed);
-    const choices = [...installed, ...this.agents.filter(a => !a.installed).slice(0, 2)];
-    return v_flex().min_h(0).w_full().h(Math.min(529, 218 + Math.max(1, choices.length) * 32)).p(5).gap(2).rounded(12).overflow_hidden().border_1().border_color(t.input).bg(t.popover).shadow_2xl().text_size(12.8).font_semibold()
+    const rule = () => div().h(1).mx(10).my(4).flex_none().bg(t.border);
+    const pic = (path) => div().w(18).flex().justify_center().child(svg(path).size(15));
+    // What a key or a click starts: here, in the shown space.
+    return v_flex().w_full().p(5).gap(2).rounded(12).overflow_hidden().border_1().border_color(t.input).bg(t.popover).shadow_2xl().text_size(12.8).font_semibold()
       .id("new-menu").track_focus(this.handle)
       .on_key_down((e) => {
         if (e.modifiers.control || e.modifiers.platform || e.modifiers.alt) return;
-        const agent = /^[1-9]$/.test(e.key) ? installed[Number(e.key) - 1] : null;
+        const others = installed.filter((a) => !/claude/i.test(a.key ?? a.name));
+        const agent = /^[1-9]$/.test(e.key) ? others[Number(e.key) - 1] : null;
         if (!agent) return;
         closeOverlay(props().overlay);
         run("tab.new", { name: agent.name, space: space?.id, argv: agent.run });
       })
-      .child(this.row("ask", div().w(18).flex().justify_center().child(svg("mods/sleeve-ask/sparkles.svg").size(15)), "Ask Claude\u2026", () => run("mod.open", { name: "sleeve-ask" }), "\u2318\u21e7N"))
-      .child(this.row("terminal", image("mods/sleeve-spaces/icons/app-terminal.svg").size(18), "Terminal", () => run("tab.new", { space: space?.id }), shortcut("tab.new")))
-      .child(div().h(1).mx(10).my(4).bg(t.border))
-      .child(div().px(10).pt(4).pb(4).text_size(11).font_semibold().text_color(t.dim).child("Start an agent"))
-      .child(v_flex().id("new-agents").flex_1().min_h(0).gap(2).overflow_y_scroll()
-        .children(choices.map((a, i) => this.row(a.key, a.tint ? svg(a.icon).size(16) : image(a.icon).size(18), a.name,
-          () => run("tab.new", { name: a.name, space: space?.id, argv: a.run }), a.installed ? (i < 9 ? String(i + 1) : "") : "not installed", a.installed)))
-        .when(this.agents.length === 0, el => el.child(div().px(9).py(6).text_color(t.dim).child(this.failed ? "Could not load agents" : "Checking installed agents…"))))
-      .child(div().h(1).mx(10).my(4).bg(t.border))
-      .child(this.row("space", div().w(18).flex().justify_center().child(svg("mods/sleeve-chrome/icons/plus.svg").size(15)), "New space", () => run("space.new"), shortcut("space.new")))
-      .child(this.row("worktree", image("mods/sleeve-spaces/icons/app-branch.svg").size(18), "New worktree…", () => openOverlay({ mod: "sleeve-worktree", kind: "dialog", frame: "none", width: 460, height: 158, props: { space: space?.id, folder: panes().find(p => p.focused)?.cwd, action: "new" } }), "", Boolean(space)))
-      .child(this.row("worktree-open", image("mods/sleeve-spaces/icons/app-branch.svg").size(18), "Open worktree\u2026", () => openOverlay({ mod: "sleeve-worktree", kind: "dialog", frame: "none", width: 560, height: 480, props: { space: space?.id, folder: panes().find(p => p.focused)?.cwd, action: "open" } }), "", Boolean(space)));
+      .child(this.row("claude", image("mods/sleeve-spaces/icons/app-claude.svg").size(18), "Claude Code", () => run("tab.new", { space: space?.id, argv: ["claude"] }), "\u2318T"))
+      .child(this.row("ask", pic("mods/sleeve-ask/sparkles.svg"), "Ask Claude\u2026", () => run("mod.open", { name: "sleeve-ask" }), "\u2318\u21e7N"))
+      .child(this.row("open", pic("mods/workspace-chrome/folder.svg"), "Open folder\u2026", () => run("mod.open", { name: "sleeve-open" }), "\u2318O"))
+      .child(rule())
+      .children(installed.filter((a) => !/claude/i.test(a.key ?? a.name)).map((a, i) => this.row(a.key, a.tint ? svg(a.icon).size(16) : image(a.icon).size(18), a.name,
+        () => run("tab.new", { name: a.name, space: space?.id, argv: a.run }), i < 9 ? String(i + 1) : "")))
+      .child(this.row("terminal", image("mods/sleeve-spaces/icons/app-terminal.svg").size(18), "Terminal", () => run("tab.new", { space: space?.id }), "\u2318\u21e7T"))
+      .when(this.agents.length === 0, el => el.child(div().px(10).py(6).text_color(t.dim).child(this.failed ? "Could not load agents" : "Checking agents\u2026")))
+      .child(rule())
+      .child(this.row("space", pic("mods/sleeve-chrome/icons/plus.svg"), "New space", () => run("space.new"), shortcut("space.new")))
+      .child(this.row("worktree", image("mods/sleeve-spaces/icons/app-branch.svg").size(18), "New worktree\u2026", () => openOverlay({ mod: "sleeve-worktree", kind: "dialog", frame: "none", width: 460, height: 158, props: { space: space?.id, folder: panes().find(p => p.focused)?.cwd, action: "new" } }), "", Boolean(space)));
   }
 }

@@ -1,0 +1,5 @@
+{
+  "place": "none",
+  "title": "Open Folder",
+  "overlay": { "kind": "popup", "at": "top", "offset": 56, "width": 560, "height": 400, "frame": "none" }
+}

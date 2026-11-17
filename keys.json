@@ -3,7 +3,15 @@
     "cmd-q": "app.quit",
     "cmd-h": "app.hide",
     "cmd-alt-h": "app.hide_others",
-    "cmd-t": "tab.new",
+    "cmd-t": {
+      "command": "tab.new",
+      "args": {
+        "argv": [
+          "claude"
+        ]
+      }
+    },
+    "cmd-shift-t": "tab.new",
     "cmd-w": "tab.close",
     "ctrl-tab": "tab.next",
     "ctrl-shift-tab": "tab.prev",
@@ -14,7 +22,14 @@
     "cmd-]": "agent.next",
     "cmd-[": "agent.prev",
     "cmd-shift-l": "layout.switch",
-    "cmd-n": "space.new",
+    "cmd-n": {
+      "command": "space.new",
+      "args": {
+        "argv": [
+          "claude"
+        ]
+      }
+    },
     "cmd-p": "mod.open:picker",
     "cmd-shift-p": "app.palette",
     "cmd-,": "app.settings",
@@ -34,6 +49,7 @@
     "shift-f2": "sleeve-work.rename-space",
     "cmd-shift-e": "sleeve-work.focus",
     "cmd-shift-n": "mod.open:sleeve-ask",
+    "cmd-o": "mod.open:sleeve-open",
     "cmd-/": "app.help",
     "cmd-shift-/": "app.help",
     "cmd-b": "layout.toggle:sidebar",
@@ -94,5 +110,11 @@
     "cmd-9": "sleeve-work.tab9",
     "ctrl-9": "sleeve-work.space9",
     "cmd-shift-a": "mod.open:sleeve-inbox"
+  },
+  "layout:grove": {
+    "cmd-n": "grove-top.new",
+    "cmd-alt-n": "grove-top.new-terminal",
+    "cmd-alt-t": "tab.new",
+    "cmd-shift-m": "grove-top.mute"
   }
 }

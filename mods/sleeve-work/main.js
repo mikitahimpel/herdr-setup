@@ -16,7 +16,7 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, Popup } from "gpui-base";
-import { spaces, machines, panes, run, openOverlay, hc, theme, shared, layout, nextCommand, home, terminals } from "herdr";
+import { spaces, machines, panes, run, openOverlay, hc, theme, shared, setShared, layout, nextCommand, home, terminals, knownAgents } from "herdr";
 import { askRename, askClose } from "./ask.js";
 import { GitFacts, lead } from "./git.js";
 import { Card } from "./card.js";
@@ -252,7 +252,7 @@ export default class Work extends View {
   iconButton(id, icon, size, tip, t, action) {
     return div().id(id).size(20).flex_none().flex().items_center().justify_center().rounded(6).text_color(t.muted)
       .hover((s) => s.bg(`${t.foreground.slice(0, 7)}1f`).text_color(t.foreground)).tooltip(tip)
-      .on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); action(); })
+      .on_mouse_down("left", (e, cx) => { cx.stop_propagation(); action(cx, e); cx.notify(); })
       .child(svg(icon).size(size));
   }
 
@@ -351,21 +351,80 @@ export default class Work extends View {
   // ahead/behind; outside a repo the folder. The tabs working there hang under it.
   placeHead(p, t) {
     const g = p.g;
-    const hot = this.hotPlace === p.key;
+    const hot = this.hotPlace === p.key || this.menuAt === p.key;
     const w = p.rows[0]?.w;
-    return h_flex().id(`place-${p.key}`).h(24).flex_none().ml(10).pl(6).pr(4).gap(6).items_center().rounded(7)
+    return h_flex().id(`place-${p.key}`).relative().h(24).flex_none().ml(10).pl(6).pr(4).gap(6).items_center().rounded(7)
       .text_size(12).font_semibold().text_color(t.muted)
-      .when(!g, (el) => el.hover((s) => s.bg(t.hover))
-        .on_hover((over, cx) => { this.hotPlace = over ? p.key : this.hotPlace === p.key ? null : this.hotPlace; cx.notify(); }))
+      .when(Boolean(w), (el) => el.hover((s) => s.bg(t.hover))
+        .on_hover((over, cx) => { this.hotPlace = over ? p.key : this.hotPlace === p.key ? null : this.hotPlace; if (over) this.loadAgents(w.machine); cx.notify(); }))
       .child(svg(`mods/workspace-chrome/${g ? "git-branch" : "folder"}.svg`).size(11).flex_none().text_color(t.dim))
       .child(div().flex_shrink(1).min_w(0).truncate().child(g ? g.branch ?? "detached" : short(p.folder)))
       .when(Boolean(g?.linked), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child("worktree")))
       .child(div().flex_1())
-      .when(g?.ahead > 0, (el) => el.child(div().flex_none().text_size(11.5).font_bold().text_color(t.done).child(`\u2191${g.ahead}`)))
-      .when(g?.behind > 0, (el) => el.child(div().flex_none().text_size(11.5).font_bold().text_color(t.blocked).child(`\u2193${g.behind}`)))
-      // A folder outside a repo: a new tab there, in the space its tabs are in.
-      .when(!g && hot && Boolean(w), (el) => el.child(this.iconButton(`add-${p.key}`, "mods/sleeve-chrome/icons/plus.svg", 13, "New tab here", t,
-        () => run("tab.new", { space: w.id, folder: p.folder }))));
+      .when(!hot && g?.ahead > 0, (el) => el.child(div().flex_none().text_size(11.5).font_bold().text_color(t.done).child(`\u2191${g.ahead}`)))
+      .when(!hot && g?.behind > 0, (el) => el.child(div().flex_none().text_size(11.5).font_bold().text_color(t.blocked).child(`\u2193${g.behind}`)))
+      // A terminal or an agent there, in the space its tabs are in.
+      // A click: the default agent there; ⌃click: the menu of all.
+      .when(hot && Boolean(w), (el) => el.child(this.iconButton(`add-${p.key}`, "mods/sleeve-chrome/icons/plus.svg", 13,
+        `${this.defaultAgent(w.machine)?.name ?? "Terminal"} here \u00b7 \u2303click for more`, t,
+        (cx, e) => { if (e?.modifiers?.control) this.openMenu(p, w, cx); else this.startHere(p, w, this.defaultAgent(w.machine)); })
+        .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.openMenu(p, w, cx); cx.notify(); })))
+      .when(this.menuAt === p.key && Boolean(w), (el) => el.child(this.placeMenu(p, w, t)));
+  }
+
+  // The agents a machine has, kept between openings (sleeve-new reads the same).
+  agentsOn(m) {
+    const key = `new.agents.${m ?? "local"}`;
+    return (shared(key) ?? []).filter((a) => a.installed);
+  }
+
+  openMenu(p, w, cx) {
+    this.menuAt = this.menuAt === p.key ? null : p.key;
+    this.card.close(cx);
+    if (this.menuAt) this.loadAgents(w.machine);
+  }
+
+  loadAgents(m) {
+    const key = `new.agents.${m ?? "local"}`;
+    if (shared(key) || this.loading?.has(key)) return;
+    (this.loading ??= new Set()).add(key);
+    knownAgents({ on: m ?? null }).then((list) => setShared(key, list)).catch(() => {}).finally(() => this.loading.delete(key));
+  }
+
+  // Claude Code where it's installed, else the first agent there.
+  defaultAgent(m) {
+    const list = this.agentsOn(m);
+    return list.find((a) => /claude/i.test(a.key ?? a.name)) ?? list[0] ?? null;
+  }
+
+  // A new tab in a place, in the space its tabs are in: `agent` there, else a terminal.
+  startHere(p, w, agent) {
+    const folder = p.g ? p.g.top : p.folder;
+    run("tab.new", { space: w.id, folder, ...(agent ? { argv: agent.run, name: agent.name } : {}) });
+  }
+
+  // Under a place's +: a terminal, then each agent installed on its machine.
+  placeMenu(p, w, t) {
+    const folder = p.g ? p.g.top : p.folder;
+    const close = (cx) => { this.menuAt = null; cx.notify(); };
+    const item = (id, pic, name, argv) => h_flex().id(`pm-${id}`).h(30).flex_none().px(8).gap(9).items_center().rounded(7).cursor_pointer()
+      .text_size(12.8).font_semibold().text_color(t.foreground).hover((s) => s.bg(t.selected ?? t.hover))
+      .on_mouse_down("left", (_e, cx) => {
+        cx.stop_propagation();
+        this.startHere(p, w, argv ? { run: argv, name } : null);
+        close(cx);
+      })
+      .child(div().size(18).flex_none().flex().items_center().justify_center().child(pic))
+      .child(div().flex_1().truncate().child(name));
+    const agents = this.agentsOn(w.machine);
+    const list = v_flex().id(`pm-${p.key}`).w(220).p(5).gap(1).rounded(12).border_1().border_color(t.input).bg(t.popover).shadow_2xl()
+      .on_mouse_down_out((_e, cx) => close(cx))
+      .child(div().px(8).pt(3).pb(5).text_size(11).font_semibold().text_color(t.dim).truncate().child(`In ${p.g ? `${p.g.name} · ${p.g.branch ?? "detached"}` : short(folder)}`))
+      .child(item("term", programIcon(null, 18, t.foreground), "Terminal", null))
+      .children(agents.map((a) => item(a.key, programIcon(a, 18, t.foreground), a.name, a.run)))
+      .when(!agents.length, (el) => el.child(div().px(8).py(6).text_size(12).text_color(t.dim).child("Looking for agents\u2026")));
+    return div().absolute().top(26).right(0).size(0)
+      .child(Popup.new(`pmenu-${p.key}`, div().size(0)).anchor("top_right").content(list));
   }
 
   // A group's head: a repo by a tile with its initial in a color of its own, or the

@@ -4,8 +4,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { theme, run, updates, layout, keys, props, spaces, agents, shared, setShared, knownAgents, openOverlay, appHome } from "herdr";
-import * as fs from "fs/promises";
+import { theme, run, updates, layout, keys, props, spaces, agents, shared, setShared, knownAgents, openOverlay } from "herdr";
 
 const GLYPHS = { cmd: "⌘", shift: "⇧", ctrl: "⌃", alt: "⌥" };
 // A control's tooltip: what it does, then its key.
@@ -26,29 +25,6 @@ function find(node, id) {
 const narrow = () => (find(layout(), "sidebar")?.size?.px ?? Infinity) < 160;
 const footer = () => props()?.part === "footer";
 
-// Herdr draws notifications with its shipped `toast` mod and has no setting to pick
-// another, and it restores an edited shipped mod at start. So while this layout runs the
-// sleeve version (toast/main.js.txt) stands in for it, and the original goes back on quit
-// or when this layout closes; a start after a crash finds it as `toast-edited`, removed here.
-const MARK = "// sleeve-toast:";
-const TOAST = () => `${appHome()}/mods/toast/main.js`;
-const KEPT = () => `${appHome()}/mods/sleeve-chrome/.toast-original.js`;
-
-async function swapToast() {
-  const now = await fs.readFile(TOAST(), "utf8");
-  if (!now.startsWith(MARK)) await fs.writeFile(KEPT(), now);
-  const ours = await fs.readFile(`${appHome()}/mods/sleeve-chrome/toast/main.js.txt`, "utf8");
-  if (now !== ours) await fs.writeFile(TOAST(), ours);
-  for (const name of await fs.readdir(`${appHome()}/mods`)) {
-    if (!/^toast-edited(-\d+)?$/.test(name)) continue;
-    const dir = `${appHome()}/mods/${name}`;
-    const main = await fs.readFile(`${dir}/main.js`, "utf8").catch(() => "");
-    if (!main.startsWith(MARK)) continue;
-    for (const f of await fs.readdir(dir)) await fs.unlink(`${dir}/${f}`).catch(() => {});
-    await fs.rmdir(dir).catch(() => {});
-  }
-}
-
 const PANELS = [
   { id: "images", label: "Images", icon: "mods/sleeve-chrome/icons/images.svg" },
   { id: "files", label: "Files", icon: "mods/sleeve-chrome/icons/file.svg" },
@@ -61,13 +37,6 @@ export default class SleeveChrome extends View {
     // The + menu opens with this list ready.
     cx.spawn(async () => { try { setShared("new.agents.local", await knownAgents({})); } catch {} });
     this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}");
-    cx.spawn(async () => { try { await swapToast(); } catch (e) { console.log(`sleeve-toast: ${e}`); } });
-  }
-
-  async close() {
-    if (!footer()) return;
-    const kept = await fs.readFile(KEPT(), "utf8").catch(() => null);
-    if (kept) await fs.writeFile(TOAST(), kept);
   }
 
   button(id, icon, tip, action, on = false, big = false) {
@@ -138,7 +107,14 @@ export default class SleeveChrome extends View {
 
   // Beside the window buttons, as in Rex: the sidebar toggle, then go to, history and +.
   top(t, collapsed) {
-    const add = () => openOverlay({ mod: "sleeve-new", kind: "popup", frame: "none", width: 240, height: 512 });
+    // The + menu's height: its fixed rows and one per agent installed here.
+    const add = () => {
+      const n = (shared(`new.agents.${spaces().find((s) => s.active)?.machine ?? "local"}`) ?? []).filter((a) => a.installed).length || 1;
+      // A layout can pick its own + menu (props { new }); grove's adds where it opens.
+      const mod = props()?.new ?? "sleeve-new";
+      const extra = mod === "sleeve-new" ? 0 : 96;
+      openOverlay({ mod, kind: "popup", frame: "none", width: mod === "sleeve-new" ? 240 : 300, height: 12 + (6 + n) * 33 + 2 * 11 + extra });
+    };
     return h_flex().size_full().pl(74).gap(4).items_center()
       .when(!collapsed, el => el
         .child(this.button("sidebar", "mods/sleeve-chrome/icons/sidebar.svg", hint("Hide sidebar", "layout.toggle:sidebar"), () => run("layout.toggle", { id: "sidebar" }), false, true))
@@ -161,7 +137,7 @@ export default class SleeveChrome extends View {
     };
     const list = agents();
     this.stamp(list);
-    return h_flex().size_full().px(8).gap(2).items_center().when(collapsed, el => el.justify_center())
+    return h_flex().size_full().px(props()?.pad ?? 8).gap(2).items_center().when(collapsed, el => el.justify_center())
       .child(this.inbox(t, list))
       .child(div().relative()
         .child(this.button("settings", "mods/sleeve-chrome/icons/settings.svg", hint("Settings", "app.settings"), () => run("app.settings")))

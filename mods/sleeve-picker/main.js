@@ -77,8 +77,8 @@ export default class Picker extends View {
     if (!r) return;
     this.close();
     if (r.kind === "ctx") run("tab.select", { id: r.ctx.id });
-    else if (r.kind === "new") run("tab.new");
-    else if (r.kind === "space") run("space.new", { machine: r.machine ?? "" });
+    else if (r.kind === "new") run("tab.new", { argv: ["claude"] });
+    else if (r.kind === "space") run("space.new", { machine: r.machine ?? "", argv: ["claude"] });
   }
 
   // A tab's tile, as the tab bar and the sidebar draw it.
@@ -130,7 +130,7 @@ export default class Picker extends View {
       }
       const on = r === sel;
       if (r.kind === "new" || r.kind === "space") {
-        const label = r.kind === "new" ? "New tab" : r.machine ? `New space on ${r.machine}` : "New space";
+        const label = r.kind === "new" ? "New Claude tab" : r.machine ? `New space on ${r.machine}` : "New space";
         return h_flex()
           .id(r.kind === "new" ? "pk-new" : `pk-space-${r.machine ?? "here"}`)
           .h(ROW_H)
@@ -166,11 +166,14 @@ export default class Picker extends View {
         .when(Boolean(end), (el) => el.child(end));
     };
 
+    // Its own height, the search and the list: left to the popup it shrank to nothing.
+    const listH = Math.min(MAX_LIST, 6 + rows.reduce((h, r) => h + (r.kind === "head" ? HEAD_H : r.kind === "quiet" ? QUIET_H : r.kind === "rule" ? RULE_H : ROW_H), 0));
     return v_flex()
       .id("picker")
       .track_focus(this.handle)
       .w_full()
-      .min_h(0)
+      .h(46 + 6 + listH + 7)
+      .flex_none()
       .p(5)
       .gap(6)
       .rounded(12)
@@ -199,7 +202,7 @@ export default class Picker extends View {
           .child(svg("mods/sleeve-chrome/icons/search.svg").size(16).flex_none().text_color(t.dim))
           .child(Input.new(this.input).flex_1().h_full().text_size(13.5).text_color(t.foreground)),
       )
-      .child(v_flex().id("picker-list").h(Math.min(MAX_LIST, 6 + rows.reduce((h, r) => h + (r.kind === "head" ? HEAD_H : r.kind === "quiet" ? QUIET_H : r.kind === "rule" ? RULE_H : ROW_H), 0))).min_h(0).flex_shrink(1).pb(6).overflow_y_scroll().children(rows.map(row)));
+      .child(v_flex().id("picker-list").h(listH).flex_none().pb(6).overflow_y_scroll().children(rows.map(row)));
 
   }
 }

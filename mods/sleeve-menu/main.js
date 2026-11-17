@@ -89,7 +89,8 @@ function items(p, git) {
     case "tab":
       return [
         ["Rename", "tab.rename", { id: tg.id }],
-        ["New tab", "tab.new", { space: tg.space }],
+        ["New Claude tab", "tab.new", { space: tg.space, argv: ["claude"] }],
+        ["New terminal", "tab.new", { space: tg.space }],
         ["Ask Claude here\u2026", "ask", { space: tg.space }],
         ...copyItem(p),
         ["Close", "tab.close", { id: tg.id }],
@@ -105,7 +106,7 @@ function items(p, git) {
       ];
     default:
       return [
-        ["New space", "space.new", {}],
+        ["New space", "space.new", { argv: ["claude"] }],
         ["Keybinds", "app.help", {}],
         ["Theme: graphite", "app.theme", { name: "graphite" }],
         ["Theme: ink", "app.theme", { name: "ink" }],

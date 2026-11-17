@@ -1,6 +1,12 @@
 # Herdr setup
 
-My Herdr desktop layout: the `sleeve` layout and theme, its 19 mods, keys and settings.
+My Herdr desktop layouts, their themes and mods, keys and settings:
+
+- `sleeve`: the everyday layout.
+- `grove`: a Rex-style sidebar. Groups are spaces (one per repo and machine), rows are
+  tabs with the worktree they work in, sub-agents fold into a count. + (⌘N) asks where the
+  new session starts; right-click + or a row for Codex, a terminal and the rest. The bell
+  (⌘⇧M) mutes agents' sounds and notifications. Switch with ctrl-shift-l.
 
 ## Install on another Mac
 

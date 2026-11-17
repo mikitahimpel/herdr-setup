@@ -2,6 +2,7 @@
   "id": "root",
   "type": "row",
   "titlebar": "none",
+  "toast": "sleeve-toast",
   "traffic_lights": [
     20,
     18
@@ -162,14 +163,6 @@
         "mod": "sleeve-resume"
       },
       "edge": "top",
-      "align": "center"
-    },
-    {
-      "id": "drop",
-      "content": {
-        "mod": "sleeve-drop"
-      },
-      "edge": "bottom",
       "align": "center"
     }
   ]

@@ -1,0 +1,8 @@
+{
+  "place": "none",
+  "title": "Grove pane header",
+  "cloned_from": {
+    "name": "pane",
+    "version": "0.1.10"
+  }
+}
