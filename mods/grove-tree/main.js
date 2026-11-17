@@ -105,7 +105,7 @@ export default class Grove extends View {
         const pane = lead(c.id, ps);
         const tg = this.git.ofTab(w, c, ps);
         let tag = null;
-        if (tg && g && tg.top !== g.top) tag = { text: tg.linked && tg.name === g.name ? tg.branch : base(tg.top), wt: tg.linked, path: tg.top };
+        if (tg && g && tg.top !== g.top) tag = { text: (tg.linked && tg.name === g.name ? tg.branch : null) || base(tg.top), wt: tg.linked, path: tg.top };
         else if (!tg && pane?.cwd && folder && pane.cwd !== folder && !pane.cwd.startsWith(folder + "/")) tag = { text: base(pane.cwd), path: pane.cwd };
         const ks = ps.filter((p) => p.tab === c.id && p.terminal).flatMap((p) => kids(p.terminal, 0));
         // Agents first, then helpers (caffeinate and the like).
@@ -118,7 +118,7 @@ export default class Grove extends View {
       // without a tag), in the order they first appear.
       const items = [];
       const groups = {};
-      const own = g?.top ? { text: g.branch ?? base(g.top), wt: true, path: g.top } : null;
+      const own = g?.top ? { text: g.branch || base(g.top), wt: true, path: g.top } : null;
       for (const x of tabs) {
         const tag = x.tag ?? own;
         if (!own || !tag) { items.push(x); continue; }
@@ -171,10 +171,10 @@ export default class Grove extends View {
       .on_mouse_down("right", () => menu([...this.tabMenu(s.w), "-",
         { label: "Rename session…", run: { name: "space.rename", args: { id: s.w.id } } },
         { label: "Close session", danger: true, run: { name: "space.close", args: { id: s.w.id } } }]))
-      .child(div().flex_none().max_w(150).truncate().text_size(12).font_semibold().text_color(HEADER).child(s.w.name))
+      .child(div().flex_none().max_w(150).truncate().text_size(12).font_semibold().text_color(HEADER).child(String(s.w.name ?? "")))
       .child(h_flex().flex_1().min_w(0).gap(3).items_center().text_color(t.dim)
         .when(s.wt, (el) => el.child(svg(BRANCH).size(10).flex_none()))
-        .child(div().min_w(0).truncate().text_size(12).child(where)))
+        .child(div().min_w(0).truncate().text_size(12).child(String(where ?? ""))))
       .when(Boolean(s.machine), (el) => el.child(h_flex().id(`m-${s.w.id}`).flex_none().gap(4).items_center().text_size(11.5).text_color(t.dim)
         .tooltip(up ? `${s.machine} is online` : m?.layout === "loading" ? `Connecting to ${s.machine}…` : `${s.machine} is offline`)
         .child(div().size(6).rounded_full().bg(up ? t.done : t.idle))
@@ -215,11 +215,11 @@ export default class Grove extends View {
         .when(badge, (el) => el.child(div().absolute().right(-3).bottom(-3).size(8).rounded_full().bg(t[x.status])
           .border_2().border_color(selected ? t.selected : t.chrome))))
       .child(h_flex().flex_1().min_w(0).gap(8).items_center()
-        .child(div().flex_shrink(1).min_w(40).truncate().text_size(13).text_color(selected ? t.foreground : TITLE).child(x.name))
+        .child(div().flex_shrink(1).min_w(40).truncate().text_size(13).text_color(selected ? t.foreground : TITLE).child(String(x.name ?? "")))
         .when(Boolean(tag), (el) => el.child(h_flex().id(`tag-${c.id}`).flex_shrink(1000).min_w(13).max_w(110).gap(3).items_center().overflow_hidden()
           .text_size(11.5).text_color(t.dim).tooltip(`Works in ${tilde(tag.path)}`)
           .child(svg(tag.wt ? BRANCH : FOLDER).size(10).flex_none())
-          .child(div().min_w(0).truncate().child(tag.text)))))
+          .child(div().min_w(0).truncate().child(String(tag.text ?? ""))))))
       .when(x.peers.length > 0, (el) => el.child(h_flex().flex_none().gap(4).items_center()
         .children(x.peers.map((p) => this.peer(t, p, selected)))))
       .when(x.kids.length > 0, (el) => el.child(h_flex().id(`kids-${c.id}`).h(18).px(6).gap(4).flex_none().items_center().justify_center().rounded(9)
@@ -265,7 +265,7 @@ export default class Grove extends View {
         { label: "Codex tab here", program: { icon: CODEX, tint: true }, run: { name: "tab.new", args: add(["codex"]) } },
         { label: "Terminal tab here", program: { shell: true }, run: { name: "tab.new", args: add() } }]))
       .child(svg(gr.tag.wt ? BRANCH : FOLDER).size(11).flex_none())
-      .child(div().flex_1().min_w(0).truncate().text_size(12).child(gr.tag.text))
+      .child(div().flex_1().min_w(0).truncate().text_size(12).child(String(gr.tag.text ?? "")))
       .child(hot ? this.mini(t, `wtadd-${key}`, "mods/workspace-chrome/plus.svg", `New Claude tab in ${gr.tag.text}   ⌥ terminal`,
           (e) => run("tab.new", add(e.modifiers.alt ? null : ["claude"])))
         : div().w(22).h(22).flex_none().flex().items_center().justify_center()
