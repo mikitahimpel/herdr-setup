@@ -3,10 +3,13 @@
 My Herdr desktop layouts, their themes and mods, keys and settings:
 
 - `sleeve`: the everyday layout.
-- `grove`: a Rex-style sidebar. Groups are spaces (one per repo and machine), rows are
-  tabs with the worktree they work in, sub-agents fold into a count. + (⌘N) asks where the
-  new session starts; right-click + or a row for Codex, a terminal and the rest. The bell
-  (⌘⇧M) mutes agents' sounds and notifications. Switch with ctrl-shift-l.
+- `grove`: a Rex-style sidebar. Groups are spaces (one per repo and machine, at the repo's
+  main checkout), tabs sit under a line per branch they work in, sub-agents fold into a
+  count. + (⌘N) asks where the new session starts; right-click + or a row for Codex, a
+  terminal and the rest. The bell (⌘⇧M) mutes agents' sounds and notifications. Switch
+  with ctrl-shift-l.
+- `skills/herdr-placement`: how agents start tasks so they land in that layout (a tab per
+  task in the repo's space, in its worktree).
 
 ## Install on another Mac
 
@@ -25,7 +28,8 @@ My Herdr desktop layouts, their themes and mods, keys and settings:
 3. Clone this repo and run `./install.sh`.
 
 The script replaces `keys.json`, `programs.json` and `settings.json`, keeping the old
-versions as `<name>.bak-<time>`, then switches Herdr to the `sleeve` layout.
+versions as `<name>.bak-<time>`, links the skills into `~/.claude/skills`, then switches
+Herdr to the `sleeve` layout.
 
 ## Update
 

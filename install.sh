@@ -28,6 +28,15 @@ for mod in "$repo"/mods/*; do
   rsync -a --delete --exclude=.cache --exclude=gpui-kit.d.ts --exclude=jsconfig.json "$mod/" "$home/mods/$(basename "$mod")/"
 done
 
+# Agents' skills for this setup, linked so a pull here updates them.
+skills=${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}
+mkdir -p "$skills"
+for skill in "$repo"/skills/*; do
+  target="$skills/$(basename "$skill")"
+  if [ -e "$target" ] && [ ! -L "$target" ]; then mv "$target" "$target.bak-$stamp"; fi
+  ln -sfn "$skill" "$target"
+done
+
 if [ -z "${HERDR_APP_HOME:-}" ] && command -v herdr-app >/dev/null; then
   herdr-app do layout.switch --name sleeve >/dev/null 2>&1 || echo "Pick the sleeve layout in Herdr (ctrl-shift-l)."
 fi
