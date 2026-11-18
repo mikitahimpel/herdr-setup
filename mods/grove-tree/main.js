@@ -178,8 +178,9 @@ export default class Grove extends View {
         .child(div().min_w(0).truncate().text_size(12).child(String(where ?? ""))))
       .when(Boolean(s.machine), (el) => el.child(h_flex().id(`m-${s.w.id}`).flex_none().gap(4).items_center().text_size(11.5).text_color(t.dim)
         .tooltip(up ? `${s.machine} is online` : m?.layout === "loading" ? `Connecting to ${s.machine}…` : `${s.machine} is offline`)
-        .child(div().size(6).rounded_full().bg(up ? t.done : t.idle))
-        .child(s.machine)))
+        .child(svg("mods/workspace-chrome/server.svg").size(11).flex_none()
+          .text_color(up ? t.accent : m?.layout === "loading" ? t.working : t.dim))
+        .child(div().when(!up, (d) => d.opacity(0.6)).child(s.machine))))
       .when(hot, (el) => el.child(this.mini(t, `add-${s.w.id}`, "mods/workspace-chrome/plus.svg",
         `New Claude tab in ${s.w.name}   ⌥ terminal · right-click: a worktree`,
         (e) => run("tab.new", { space: s.w.id, ...(s.w.folder ? { folder: s.w.folder } : {}), ...(e.modifiers.alt ? {} : { argv: ["claude"] }), focus: true }),
